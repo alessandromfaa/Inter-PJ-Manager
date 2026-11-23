@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 test("leitura em homologação com respostas locais", async ({ page }) => {
   let synced = false;
   await page.route("**/api/**", async (route) => {
-    const path = new URL(route.request().url).pathname;
+    const path = new URL(route.request().url()).pathname;
     const reply = (json: unknown) => route.fulfill({ json });
     if (path === "/api/ambiente") return reply("SANDBOX");
     if (path === "/api/session")
