@@ -1,4 +1,8 @@
-use crate::{App, auth, domain::Snapshot};
+use crate::{
+    App, auth,
+    domain::{Dashboard, Statement, StatementQuery},
+    infrastructure::banking::inter::BankError,
+};
 use axum::{
     Json,
     extract::{Request, State},
@@ -11,6 +15,7 @@ use sqlx_core::{query::query, row::Row};
 use uuid::Uuid;
 pub enum Error {
     Invalid(StatusCode),
+    Bank(BankError),
     Unauthorized,
     Forbidden,
     Busy,
@@ -26,6 +31,23 @@ impl From<sqlx_core::Error> for Error {
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
         let (status, msg) = match self {
+            Self::Bank(err) => {
+                let status = match err {
+                    BankError::Account => StatusCode::FORBIDDEN,
+                    BankError::Busy | BankError::Mock => StatusCode::CONFLICT,
+                    BankError::Limit => StatusCode::TOO_MANY_REQUESTS,
+                    BankError::Period => StatusCode::BAD_REQUEST,
+                    BankError::Timeout => StatusCode::GATEWAY_TIMEOUT,
+                    BankError::Database(_) => StatusCode::SERVICE_UNAVAILABLE,
+                    _ => StatusCode::BAD_GATEWAY,
+                };
+                let msg = if matches!(err, BankError::Database(_)) {
+                    "Falha de persistência".to_owned()
+                } else {
+                    err.to_string()
+                };
+                return (status, Json(msg)).into_response();
+            }
             Self::Invalid(status) => (
                 status,
                 "Corpo da requisição inválido ou excede o limite permitido.",
@@ -57,7 +79,11 @@ pub async fn guard(State(app): State<App>, req: Request, next: Next) -> Response
     let mut response = if denied {
         Error::Forbidden.into_response()
     } else {
-        next.run(req).await
+        tracing::Instrument::instrument(
+            next.run(req),
+            tracing::info_span!("requisicao",request_id=%id),
+        )
+        .await
     };
     response
         .headers_mut()
@@ -75,13 +101,44 @@ pub async fn ready(State(a): State<App>) -> Result<&'static str> {
 pub async fn session(State(a): State<App>, h: HeaderMap) -> Result<Json<auth::Identity>> {
     Ok(Json(auth::identity(&a, &h).await?))
 }
-pub async fn dashboard(State(a): State<App>, h: HeaderMap) -> Result<Json<Snapshot>> {
+pub async fn dashboard(State(a): State<App>, h: HeaderMap) -> Result<Json<Dashboard>> {
     let user = auth::identity(&a, &h).await?;
     Ok(Json(
         a.bank
             .snapshot(user.company_id)
             .await
-            .map_err(|_| Error::Internal)?,
+            .map_err(Error::Bank)?,
+    ))
+}
+pub async fn environment(State(a): State<App>) -> Json<&'static str> {
+    Json(a.bank.environment())
+}
+pub async fn sync(State(a): State<App>, h: HeaderMap) -> Result<StatusCode> {
+    let user = auth::identity(&a, &h).await?;
+    if !user.roles.iter().any(|r| r == "ADMIN") {
+        return Err(Error::Forbidden);
+    }
+    a.bank
+        .synchronize(user.company_id, user.id)
+        .await
+        .map_err(Error::Bank)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+pub async fn statement(
+    State(a): State<App>,
+    h: HeaderMap,
+    filter: std::result::Result<
+        axum::extract::Query<StatementQuery>,
+        axum::extract::rejection::QueryRejection,
+    >,
+) -> Result<Json<Statement>> {
+    let user = auth::identity(&a, &h).await?;
+    let filter = filter.map_err(|_| Error::Bank(BankError::Period))?;
+    Ok(Json(
+        a.bank
+            .statement(user.company_id, filter.0)
+            .await
+            .map_err(Error::Bank)?,
     ))
 }
 #[derive(Serialize)]

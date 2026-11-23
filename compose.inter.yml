@@ -1,0 +1,15 @@
+# Sobreposição opt-in para o adaptador externo de leitura.
+services:
+  api:
+    networks: [private, front]
+    environment:
+      ENABLE_BANK_READS: ${ENABLE_BANK_READS:?Habilite a leitura explicitamente}
+      INTER_COMPANY_ID: ${INTER_COMPANY_ID:?Informe o UUID da empresa}
+      INTER_ACCOUNT_ID: ${INTER_ACCOUNT_ID:?Informe o UUID local da conta}
+      INTER_ACCOUNT_NUMBER: ${INTER_ACCOUNT_NUMBER:?Informe a conta autorizada}
+      INTER_CREDENTIALS_ROOT: /run/inter
+    volumes:
+      - ${INTER_CREDENTIALS_ROOT:?Informe o diretório de credenciais}/${INTER_ENV:?Informe o ambiente}:/run/inter/${INTER_ENV}:ro
+  bootstrap:
+    environment:
+      INTER_ENV: mock

@@ -1,3 +1,4 @@
+import { environmentLabel, type Mode } from "../services/api";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -10,7 +11,7 @@ const schema = z.object({
   email: z.email("Informe um e-mail válido."),
   password: z.string().min(1, "Informe sua senha."),
 });
-export function Login({ done }: { done: () => void }) {
+export function Login({ done, mode }: { done: () => void; mode: Mode }) {
   const {
     register,
     handleSubmit,
@@ -51,7 +52,7 @@ export function Login({ done }: { done: () => void }) {
         <small>Plataforma independente · Inter PJ Manager</small>
       </section>
       <section className="login">
-        <span className="badge">MOCK · Demonstração</span>
+        <span className="badge">{environmentLabel(mode)}</span>
         <h2>Acessar painel</h2>
         <p>Entre com suas credenciais da empresa.</p>
         <form onSubmit={handleSubmit((data) => login.mutate(data))} noValidate>
@@ -82,7 +83,10 @@ export function Login({ done }: { done: () => void }) {
           </Button>
         </form>
         <footer>
-          <ShieldCheck size={17} /> Ambiente local com dados bancários fictícios
+          <ShieldCheck size={17} />{" "}
+          {mode === "PRODUCTION"
+            ? "Acesso empresarial de leitura"
+            : "Ambiente com dados bancários fictícios"}
         </footer>
       </section>
     </main>

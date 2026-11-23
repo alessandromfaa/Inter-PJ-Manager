@@ -1,6 +1,6 @@
 # Matriz das APIs Inter Empresas
 
-Consulta documental em 23/11/2026. Todas as operações bancárias abaixo estão pendentes de implementação e homologação. MOCK é o único provedor executável da Fase 1. As colunas P e S indicam limites publicados em chamadas por minuto para produção e sandbox. O traço indica informação a confirmar no contrato específico.
+Consulta documental em 23/11/2026. OAuth, saldo e extrato completo possuem adaptador implementado e testes locais. Homologação oficial pendente. As demais operações são inventário para fases futuras. As colunas P e S indicam limites publicados em chamadas por minuto para produção e sandbox. O traço indica informação a confirmar no contrato específico.
 
 | Família | Entrega prevista |
 |---|---|

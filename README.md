@@ -42,7 +42,7 @@ O mesmo manifesto é usado pelos dois motores. Em sistemas com SELinux, configur
 - Painel de novembro de 2026 com saldo disponível, entradas, saídas, evolução e últimas movimentações. Extrato com busca e filtro de tipo.
 - Layout responsivo, temas claro e escuro, indicação permanente de MOCK e identificação da base fictícia.
 - Auditoria local restrita a ADMIN e AUDITOR. Todos os cinco perfis existem no backend. O provisionamento de usuários adicionais ocorre por comando administrativo local.
-- Tabelas e vínculos multiempresa para as fases seguintes. O acesso bancário externo e operações de escrita permanecem bloqueados na inicialização.
+- Tabelas e vínculos multiempresa para as fases seguintes. A Fase 2 permite sincronização explícita de saldo e extrato em SANDBOX ou PRODUCTION. O administrador configura credenciais e habilita a leitura. Escritas bancárias continuam bloqueadas. Consulte o [guia de configuração](docs/inter.md).
 
 ## Guias
 

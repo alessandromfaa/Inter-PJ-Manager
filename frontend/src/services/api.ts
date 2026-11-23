@@ -46,20 +46,22 @@ export async function api<T>(path: string, data?: unknown): Promise<T> {
       typeof msg === "string" ? msg : "Falha ao carregar. Tente novamente.",
     );
   }
+  if (response.status === 204) return undefined as T;
   return response.json();
 }
 const currency = new Intl.NumberFormat("pt-BR", {
   style: "currency",
   currency: "BRL",
 });
-export function brl(cents: number) {
-  if (!Number.isSafeInteger(cents))
+export function brl(cents: number | string) {
+  if (typeof cents === "number" && !Number.isSafeInteger(cents))
     throw new RangeError("Valor em centavos fora da faixa suportada.");
-  const magnitude = BigInt(Math.abs(cents));
+  const value = BigInt(cents);
+  const magnitude = value < 0n ? -value : value;
   const fraction = (magnitude % 100n).toString().padStart(2, "0");
   const parts = currency.formatToParts(magnitude / 100n);
   return (
-    (cents < 0 ? "-" : "") +
+    (value < 0n ? "-" : "") +
     parts.map((p) => (p.type === "fraction" ? fraction : p.value)).join("")
   );
 }
@@ -69,3 +71,31 @@ export const date = (iso: string) =>
     month: "short",
     timeZone: "UTC",
   }).format(new Date(iso + "T12:00:00Z"));
+
+export type Mode = "MOCK" | "SANDBOX" | "PRODUCTION";
+export function environmentLabel(mode: Mode) {
+  return {
+    MOCK: "MOCK · Demonstração",
+    SANDBOX: "SANDBOX · Homologação",
+    PRODUCTION: "PRODUCTION · Leitura",
+  }[mode];
+}
+export type Reading = {
+  synchronized_at: string;
+  imported_from: string;
+  imported_until: string;
+  balance: {
+    available: string;
+    credit_limit: string | null;
+    blocked_check: string | null;
+    blocked_admin: string | null;
+    blocked_court: string | null;
+    reference_date: string | null;
+  };
+};
+export type LiveSnapshot = {
+  source: "SANDBOX" | "PRODUCTION";
+  reading: Reading | null;
+  certificate_expires_at: string;
+  last_error: string | null;
+};

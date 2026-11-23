@@ -15,6 +15,7 @@ import {
   SunMoon,
   CalendarDays,
 } from "lucide-react";
+import { Banking } from "./pages/banking";
 import { Login } from "./pages/login";
 const Overview = lazy(() =>
   import("./pages/overview").then((m) => ({ default: m.Overview })),
@@ -22,7 +23,15 @@ const Overview = lazy(() =>
 const Ledger = lazy(() =>
   import("./pages/overview").then((m) => ({ default: m.Ledger })),
 );
-import { api, ApiError, type Identity, type Snapshot } from "./services/api";
+import {
+  api,
+  ApiError,
+  type Identity,
+  type Snapshot,
+  type Mode,
+  type LiveSnapshot,
+  environmentLabel,
+} from "./services/api";
 import { Brand } from "./components/brand";
 import "./style.css";
 const client = new QueryClient({
@@ -40,6 +49,10 @@ function Failure({ retry }: { retry: () => void }) {
 }
 function App() {
   const cache = useQueryClient();
+  const mode = useQuery({
+    queryKey: ["ambiente"],
+    queryFn: () => api<Mode>("ambiente"),
+  });
   const session = useQuery({
     queryKey: ["sessão"],
     queryFn: () => api<Identity>("session"),
@@ -60,7 +73,7 @@ function App() {
   );
   const data = useQuery({
     queryKey: ["painel", session.data?.email],
-    queryFn: () => api<Snapshot>("dashboard"),
+    queryFn: () => api<Snapshot | LiveSnapshot>("dashboard"),
     enabled: !!session.data,
   });
   const audit = useQuery({
@@ -68,14 +81,15 @@ function App() {
     queryFn: () => api<{ at: string; action: string }[]>("auditoria"),
     enabled: !!canAudit && view === "Auditoria",
   });
-  if (session.isPending)
+  if (mode.isError) return <Failure retry={() => void mode.refetch()} />;
+  if (mode.isPending || session.isPending)
     return <main className="status">Carregando sessão…</main>;
   if (
     [session.error, data.error, audit.error].some(
       (e) => e instanceof ApiError && e.status === 401,
     )
   )
-    return <Login done={reset} />;
+    return <Login done={reset} mode={mode.data} />;
   if (!session.data) return <Failure retry={() => void session.refetch()} />;
   return (
     <div className={"shell " + (dark ? "dark" : "")}>
@@ -99,8 +113,12 @@ function App() {
           ))}
         </nav>
         <div className="asidefoot">
-          <div className="badge">MOCK · Demonstração</div>
-          <p>Dados bancários fictícios</p>
+          <div className="badge">{environmentLabel(mode.data)}</div>
+          <p>
+            {mode.data === "PRODUCTION"
+              ? "Dados bancários do Inter"
+              : "Dados bancários fictícios"}
+          </p>
         </div>
       </aside>
       <div className="workspace">
@@ -131,7 +149,7 @@ function App() {
               <span className="eyebrow">PAINEL FINANCEIRO</span>
               <h1>{view}</h1>
             </div>
-            {view !== "Auditoria" && (
+            {view !== "Auditoria" && mode.data === "MOCK" && (
               <span className="period">
                 <CalendarDays size={16} /> Novembro de 2026
               </span>
@@ -159,6 +177,13 @@ function App() {
             "Carregando painel…"
           ) : data.error ? (
             <Failure retry={() => void data.refetch()} />
+          ) : data.data.source !== "MOCK" ? (
+            <Banking
+              data={data.data}
+              admin={session.data.roles.includes("ADMIN")}
+              scope={session.data.email + data.data.source}
+              ledger={view === "Extrato"}
+            />
           ) : view === "Extrato" ? (
             <Ledger s={data.data} full />
           ) : (

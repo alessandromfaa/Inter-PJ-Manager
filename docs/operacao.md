@@ -8,7 +8,7 @@
 | APP_HOST | Bind da API nativa. Padrão 127.0.0.1. O Compose usa 0.0.0.0 dentro da rede privada. |
 | APP_PORT | Porta nativa e porta externa da interface no Compose, por padrão 8080. |
 | APP_ORIGIN | Origem exata vista pelo navegador, por padrão http://127.0.0.1:8080. Ao mudar a porta pública, ajuste também a origem. |
-| BANK_PROVIDER, INTER_ENV | inter e mock. Outros valores encerram a inicialização. |
+| BANK_PROVIDER, INTER_ENV | inter e mock por padrão. sandbox e production exigem ENABLE_BANK_READS=true. |
 | ENABLE_REAL_PAYMENTS, ENABLE_BANK_WRITES | Somente false é aceito nesta fase. |
 | DATABASE_URL, DB_PASSWORD_FILE | Endereço PostgreSQL e arquivo de senha. O Compose define os valores internos. |
 | ADMIN_EMAIL, ADMIN_PASSWORD_FILE | Identidade e arquivo da senha do bootstrap. No Compose, o arquivo é montado a partir de secrets/admin. |
@@ -16,7 +16,7 @@
 | USER_EMAIL, USER_ROLE, USER_PASSWORD_FILE, COMPANY_ID | Usados exclusivamente pelo comando criar-usuario. |
 | RUST_LOG | Filtro de tracing, padrão info. |
 | APP_TIMEZONE | Valor previsto America/Fortaleza. O frontend da primeira fase utiliza esse fuso fixo. |
-| INTER_CLIENT_ID, INTER_CLIENT_SECRET_FILE, INTER_CERT_PATH, INTER_KEY_PATH, INTER_ACCOUNT_NUMBER | Reservados à próxima fase. A aplicação MOCK não carrega material bancário. |
+| INTER_CREDENTIALS_ROOT, INTER_COMPANY_ID, INTER_ACCOUNT_ID, INTER_ACCOUNT_NUMBER | Diretório de arquivos por ambiente, UUID da empresa, UUID local estável da conta e número da conta. Ver docs/inter.md. |
 | ENGINE | Motor dos scripts locais, docker por padrão, ou podman. |
 | TEST_DATABASE_URL | Banco descartável de testes de integração, nome inter_pj_test em 127.0.0.1. |
 | E2E_ORIGIN, E2E_EMAIL, E2E_PASSWORD, CHROME_PATH | Configuração exclusiva dos testes de navegador. |
@@ -70,7 +70,7 @@ A publicação em produção depende da Fase 6. Para ensaio de HTTPS, use proxy 
 | Usuário sem acesso à auditoria | Confira ADMIN ou AUDITOR na sessão. Os papéis são lidos no servidor. |
 | /ready falha | Confira conexões, espaço em disco e migrations. Use docker compose ps -a e logs dos serviços locais. |
 | Alteração da senha em secrets/admin sem efeito | O bootstrap cria o primeiro administrador somente em banco vazio. Alterar o arquivo após a criação não altera o hash persistido. |
-| Troca de ambiente impede a inicialização | A primeira fase exige inter/mock e as duas flags de escrita em false. |
+| Troca de ambiente impede a inicialização | Confira o vínculo, ambiente, permissões dos arquivos e as duas flags de escrita em false. |
 | Porta ocupada | Configure APP_PORT e APP_ORIGIN juntos e recrie os serviços do projeto. |
 
 Correlacione erros pelo X-Request-Id e pelas mensagens estruturadas do backend. Evite compartilhar logs, capturas de rede ou dumps com dados identificáveis.

@@ -27,4 +27,4 @@ O navegador acessa frontend e API na mesma origem. O proxy entrega os arquivos c
 - SQLx Core e o driver PostgreSQL são fixados na mesma versão. Essa seleção evita dependências de drivers opcionais sem uso no produto. As migrações são lidas do diretório migrations na inicialização e empacotadas no contêiner.
 - A regra de separação entre aprovador e criador já possui constraint composta na estrutura de dados. A liberação de pagamentos ainda depende do fluxo de negócio, MFA, limites e reconciliação da Fase 4.
 - Segredos locais são arquivos isolados por diretório com modo 0700. A instância do banco e o inicializador recebem segredos diferentes. A API persistente recebe somente a senha de sua role PostgreSQL.
-- O adaptador de leitura da Fase 2 deverá usar Reqwest com Rustls, seleção fixa de hosts por ambiente e identidade mTLS por integração. O contrato de leitura do painel fica separado dos contratos assíncronos de cobrança e pagamento.
+- O adaptador de leitura da Fase 2 usa Reqwest com Rustls, seleção fixa de hosts por ambiente e identidade mTLS por integração. O contrato de leitura do painel fica separado dos contratos assíncronos de cobrança e pagamento.

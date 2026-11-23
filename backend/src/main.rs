@@ -162,13 +162,22 @@ async fn main() -> Result<()> {
         !secure || origin.starts_with("https://"),
         "Produção exige origem HTTPS"
     );
+    let bank: Arc<dyn BankProvider> = if config::var("INTER_ENV", "mock") == "mock" {
+        Arc::new(MockBank)
+    } else {
+        Arc::new(infrastructure::banking::inter::InterBank::configured(db.clone()).await?)
+    };
+    tracing::info!(
+        ambiente = bank.environment(),
+        "Provedor de leitura configurado"
+    );
     let app = App {
         db,
         secure,
         origin,
         dummy: Arc::new(hash(&Uuid::new_v4().to_string())?),
         workers: Arc::new(Semaphore::new(4)),
-        bank: Arc::new(MockBank),
+        bank,
     };
     let router = router(app);
     let listener = tokio::net::TcpListener::bind(format!(
@@ -177,7 +186,7 @@ async fn main() -> Result<()> {
         config::var("APP_PORT", "8080")
     ))
     .await?;
-    tracing::info!("Servidor iniciado em MOCK");
+    tracing::info!("Servidor iniciado");
     axum::serve(listener, router).await?;
     Ok(())
 }
@@ -190,6 +199,9 @@ fn router(app: App) -> Router {
         .route("/api/logout", post(auth::logout))
         .route("/api/session", get(api::session))
         .route("/api/dashboard", get(api::dashboard))
+        .route("/api/ambiente", get(api::environment))
+        .route("/api/extrato", get(api::statement))
+        .route("/api/sincronizar", post(api::sync))
         .route("/api/auditoria", get(api::audit))
         .layer(DefaultBodyLimit::max(8192))
         .layer(middleware::from_fn_with_state(app.clone(), api::guard))

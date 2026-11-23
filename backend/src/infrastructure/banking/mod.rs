@@ -1,3 +1,5 @@
+pub mod inter;
+use crate::domain::Dashboard;
 use crate::{
     application::BankProvider,
     domain::{Entry, PeriodSummary, Snapshot},
@@ -6,7 +8,7 @@ use uuid::Uuid;
 pub struct MockBank;
 #[async_trait::async_trait]
 impl BankProvider for MockBank {
-    async fn snapshot(&self, _company_id: Uuid) -> anyhow::Result<Snapshot> {
+    async fn snapshot(&self, _company_id: Uuid) -> Result<Dashboard, inter::BankError> {
         let entries = [
             ("2026-11-23", "Estúdio Aurora", "Serviços", 425000),
             ("2026-11-20", "Locação do escritório", "Estrutura", -185000),
@@ -26,7 +28,7 @@ impl BankProvider for MockBank {
         let incoming = entries.iter().map(|e| e.cents.max(0)).sum::<i64>();
         let outgoing = entries.iter().map(|e| -e.cents.min(0)).sum::<i64>();
         let opening = 3475000;
-        Ok(Snapshot {
+        Ok(Dashboard::Mock(Snapshot {
             source: "MOCK",
             as_of: "2026-11-23".into(),
             opening,
@@ -42,7 +44,7 @@ impl BankProvider for MockBank {
                 unreconciled_count: 1,
             },
             entries,
-        })
+        }))
     }
 }
 #[cfg(test)]
@@ -50,7 +52,9 @@ mod tests {
     use super::*;
     #[tokio::test]
     async fn saldo_fecha_em_centavos() {
-        let s = MockBank.snapshot(Uuid::new_v4()).await.unwrap();
+        let Dashboard::Mock(s) = MockBank.snapshot(Uuid::new_v4()).await.unwrap() else {
+            panic!("Esperado MOCK")
+        };
         assert_eq!(
             s.available,
             s.opening + s.entries.iter().map(|e| e.cents).sum::<i64>()

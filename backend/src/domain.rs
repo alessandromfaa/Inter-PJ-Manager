@@ -25,3 +25,44 @@ pub struct Snapshot {
     pub entries: Vec<Entry>,
     pub summary: PeriodSummary,
 }
+
+#[derive(Serialize)]
+#[serde(untagged)]
+pub enum Dashboard {
+    Mock(Snapshot),
+    Inter(LiveDashboard),
+}
+
+#[derive(Serialize)]
+pub struct LiveDashboard {
+    pub source: &'static str,
+    #[serde(with = "time::serde::rfc3339")]
+    pub certificate_expires_at: time::OffsetDateTime,
+    pub reading: Option<Reading>,
+    pub last_error: Option<String>,
+}
+#[derive(Serialize)]
+pub struct Reading {
+    pub balance: crate::infrastructure::banking::inter::Balance,
+    #[serde(with = "time::serde::rfc3339")]
+    pub synchronized_at: time::OffsetDateTime,
+    pub imported_from: time::Date,
+    pub imported_until: time::Date,
+}
+#[derive(serde::Deserialize, Default)]
+pub struct StatementQuery {
+    pub inicio: Option<time::Date>,
+    pub fim: Option<time::Date>,
+    pub pagina: Option<u32>,
+}
+#[derive(Serialize)]
+pub struct Statement {
+    pub entries: Vec<Posted>,
+    pub has_more: bool,
+}
+#[derive(Serialize)]
+pub struct Posted {
+    pub date: time::Date,
+    pub kind: String,
+    pub cents: String,
+}

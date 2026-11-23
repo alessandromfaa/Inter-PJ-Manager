@@ -3,9 +3,21 @@ use std::process::Command;
 #[test]
 fn rejeita_ambientes_e_escritas_antes_de_conectar_ao_banco() {
     for (name, value, message) in [
-        ("INTER_ENV", "sandbox", "somente Inter em MOCK"),
-        ("INTER_ENV", "production", "somente Inter em MOCK"),
-        ("BANK_PROVIDER", "desconhecido", "somente Inter em MOCK"),
+        (
+            "INTER_ENV",
+            "sandbox",
+            "Leitura externa exige ENABLE_BANK_READS=true",
+        ),
+        (
+            "INTER_ENV",
+            "production",
+            "Leitura externa exige ENABLE_BANK_READS=true",
+        ),
+        (
+            "BANK_PROVIDER",
+            "desconhecido",
+            "Provedor bancário inválido",
+        ),
         (
             "ENABLE_REAL_PAYMENTS",
             "true",
