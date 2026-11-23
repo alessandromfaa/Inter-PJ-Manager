@@ -1,0 +1,201 @@
+mod api;
+mod application;
+mod auth;
+mod config;
+mod domain;
+mod infrastructure {
+    pub mod banking;
+}
+
+use anyhow::{Context, Result, ensure};
+use application::BankProvider;
+use argon2::{
+    Argon2, PasswordHasher,
+    password_hash::{SaltString, rand_core::OsRng},
+};
+use axum::{
+    Router,
+    extract::DefaultBodyLimit,
+    middleware,
+    routing::{get, post},
+};
+use infrastructure::banking::MockBank;
+use sqlx_core::{migrate::Migrator, query::query, query_scalar::query_scalar};
+use sqlx_postgres::{PgConnectOptions, PgPool, PgPoolOptions};
+use std::{env, str::FromStr, sync::Arc};
+use tokio::sync::Semaphore;
+use uuid::Uuid;
+
+#[derive(Clone)]
+struct App {
+    db: PgPool,
+    secure: bool,
+    origin: String,
+    dummy: Arc<String>,
+    workers: Arc<Semaphore>,
+    bank: Arc<dyn BankProvider>,
+}
+fn hash(password: &str) -> Result<String> {
+    Argon2::default()
+        .hash_password(password.as_bytes(), &SaltString::generate(&mut OsRng))
+        .map(|v| v.to_string())
+        .map_err(|_| anyhow::anyhow!("Falha ao proteger a senha"))
+}
+fn secret(path: &str) -> Result<String> {
+    Ok(std::fs::read_to_string(path)
+        .context("Falha ao ler arquivo de segredo")?
+        .trim_end_matches(['\r', '\n'])
+        .into())
+}
+async fn provision(db: &PgPool, bootstrap: bool) -> Result<()> {
+    let email = env::var(if bootstrap {
+        "ADMIN_EMAIL"
+    } else {
+        "USER_EMAIL"
+    })?
+    .trim()
+    .to_lowercase();
+    ensure!(email.contains('@') && email.len() <= 254, "E-mail inválido");
+    let mut tx = db.begin().await?;
+    if bootstrap {
+        query("SELECT pg_advisory_xact_lock(18502210)")
+            .execute(&mut *tx)
+            .await?;
+        let exists: bool = query_scalar("SELECT EXISTS(SELECT FROM users)")
+            .fetch_one(&mut *tx)
+            .await?;
+        if exists {
+            tx.commit().await?;
+            return Ok(());
+        }
+    }
+    let password = secret(&env::var(if bootstrap {
+        "ADMIN_PASSWORD_FILE"
+    } else {
+        "USER_PASSWORD_FILE"
+    })?)?;
+    ensure!(
+        (16..=256).contains(&password.len()),
+        "A senha inicial deve ter de 16 a 256 bytes"
+    );
+    let company = if bootstrap {
+        let id = Uuid::new_v4();
+        query("INSERT INTO companies VALUES($1,$2)")
+            .bind(id)
+            .bind(config::var("COMPANY_NAME", "Empresa de demonstração"))
+            .execute(&mut *tx)
+            .await?;
+        id
+    } else {
+        Uuid::parse_str(&env::var("COMPANY_ID")?)?
+    };
+    let user = Uuid::new_v4();
+    let role = if bootstrap {
+        "ADMIN".into()
+    } else {
+        env::var("USER_ROLE")?
+    };
+    ensure!(
+        matches!(
+            role.as_str(),
+            "ADMIN" | "APPROVER" | "OPERATOR" | "AUDITOR" | "VIEWER"
+        ),
+        "Perfil inválido"
+    );
+    query("INSERT INTO users(id,company_id,email,password_hash) VALUES($1,$2,$3,$4)")
+        .bind(user)
+        .bind(company)
+        .bind(email)
+        .bind(hash(&password)?)
+        .execute(&mut *tx)
+        .await?;
+    query("INSERT INTO user_roles VALUES($1,$2::text::user_role)")
+        .bind(user)
+        .bind(role)
+        .execute(&mut *tx)
+        .await?;
+    query("INSERT INTO audit_logs(company_id,actor,action) VALUES ($1,$2,$3)")
+        .bind(company)
+        .bind(user)
+        .bind(if bootstrap {
+            "Administrador inicial criado"
+        } else {
+            "Usuário criado pelo provisionamento local"
+        })
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    tracing_subscriber::fmt()
+        .json()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
+        )
+        .init();
+    let secure = config::validate()?;
+    let mut options = PgConnectOptions::from_str(&env::var("DATABASE_URL")?)
+        .context("Configuração PostgreSQL inválida")?;
+    if let Ok(path) = env::var("DB_PASSWORD_FILE") {
+        options = options.password(&secret(&path)?);
+    }
+    let db = PgPoolOptions::new()
+        .max_connections(12)
+        .connect_with(options)
+        .await?;
+    Migrator::new(std::path::Path::new("migrations"))
+        .await?
+        .run(&db)
+        .await?;
+    match env::args().nth(1).as_deref() {
+        Some("bootstrap") => return provision(&db, true).await,
+        Some("criar-usuario") => return provision(&db, false).await,
+        Some("migrate") => return Ok(()),
+        None => (),
+        _ => anyhow::bail!("Comando desconhecido"),
+    }
+    let origin = config::var("APP_ORIGIN", "http://127.0.0.1:8080");
+    ensure!(
+        !secure || origin.starts_with("https://"),
+        "Produção exige origem HTTPS"
+    );
+    let app = App {
+        db,
+        secure,
+        origin,
+        dummy: Arc::new(hash(&Uuid::new_v4().to_string())?),
+        workers: Arc::new(Semaphore::new(4)),
+        bank: Arc::new(MockBank),
+    };
+    let router = router(app);
+    let listener = tokio::net::TcpListener::bind(format!(
+        "{}:{}",
+        config::var("APP_HOST", "127.0.0.1"),
+        config::var("APP_PORT", "8080")
+    ))
+    .await?;
+    tracing::info!("Servidor iniciado em MOCK");
+    axum::serve(listener, router).await?;
+    Ok(())
+}
+
+fn router(app: App) -> Router {
+    Router::new()
+        .route("/health", get(|| async { "ok" }))
+        .route("/ready", get(api::ready))
+        .route("/api/login", post(auth::login))
+        .route("/api/logout", post(auth::logout))
+        .route("/api/session", get(api::session))
+        .route("/api/dashboard", get(api::dashboard))
+        .route("/api/auditoria", get(api::audit))
+        .layer(DefaultBodyLimit::max(8192))
+        .layer(middleware::from_fn_with_state(app.clone(), api::guard))
+        .with_state(app)
+}
+
+#[cfg(all(test, feature = "testes-postgres"))]
+#[path = "../tests/postgres/seguranca.rs"]
+mod testes_postgres;

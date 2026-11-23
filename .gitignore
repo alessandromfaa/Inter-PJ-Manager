@@ -1,0 +1,14 @@
+.tools/
+.env
+.env.*
+!.env.example
+secrets/
+*.pem
+*.key
+*.p12
+backups/
+target/
+node_modules/
+dist/
+playwright-report/
+test-results/
