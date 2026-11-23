@@ -1,0 +1,46 @@
+name: Qualidade em MOCK
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: inter_pj_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ["127.0.0.1:55439:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:55439/inter_pj_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verificar backend
+        working-directory: backend
+        run: |
+          rustup update stable
+          cargo +stable fmt --check
+          cargo +stable clippy --locked --all-targets --all-features -- -D warnings
+          cargo +stable test --locked --features testes-postgres
+          cargo +stable install cargo-audit --locked
+          cargo +stable audit
+      - name: Verificar frontend
+        working-directory: frontend
+        run: |
+          npm ci --legacy-peer-deps
+          npm run lint
+          npm test
+          npm run build
+          npm audit
+          npx playwright install --with-deps chromium
+      - name: Validar Compose e navegação
+        run: |
+          ./infrastructure/scripts/iniciar.sh
+          curl --retry 20 --retry-all-errors --retry-delay 2 -fsS http://127.0.0.1:8080/ready
+          export E2E_PASSWORD="$(cat secrets/admin)"
+          cd frontend && npm run e2e

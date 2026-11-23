@@ -1,0 +1,82 @@
+name: inter-pj-manager
+x-api: &api
+  build:
+    context: ./backend
+    dockerfile: ../infrastructure/docker/backend.Dockerfile
+  environment: &config
+    APP_HOST: 0.0.0.0
+    APP_PORT: 8080
+    APP_ENV: ${APP_ENV:-development}
+    APP_ORIGIN: ${APP_ORIGIN:-http://127.0.0.1:8080}
+    DATABASE_URL: postgresql://manager@db:5432/manager
+    DB_PASSWORD_FILE: /run/secrets/db_app
+    BANK_PROVIDER: ${BANK_PROVIDER:-inter}
+    INTER_ENV: ${INTER_ENV:-mock}
+    ENABLE_REAL_PAYMENTS: ${ENABLE_REAL_PAYMENTS:-false}
+    ENABLE_BANK_WRITES: ${ENABLE_BANK_WRITES:-false}
+    RUST_LOG: ${RUST_LOG:-info}
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  secrets: [db_app]
+  networks: [private]
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: manager
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_root
+    secrets: [db_root, db_app]
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./infrastructure/scripts/db-init.sh:/docker-entrypoint-initdb.d/01-init.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL","pg_isready -h 127.0.0.1 -U postgres -d manager"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [private]
+  bootstrap:
+    <<: *api
+    command: [bootstrap]
+    environment:
+      <<: *config
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@local.test}
+      COMPANY_NAME: ${COMPANY_NAME:-Empresa de demonstração}
+      ADMIN_PASSWORD_FILE: /run/secrets/admin
+    secrets: [db_app, admin]
+    depends_on:
+      db: {condition: service_healthy}
+  api:
+    <<: *api
+    depends_on:
+      bootstrap: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD","curl","-fsS","http://127.0.0.1:8080/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  web:
+    build: ./frontend
+    ports: ["127.0.0.1:${APP_PORT:-8080}:8080"]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    depends_on:
+      api: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD","wget","-q","-O","/dev/null","http://127.0.0.1:8080/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks: [private, front]
+volumes:
+  pg_data:
+networks:
+  private: {internal: true}
+  front: {}
+secrets:
+  db_app: {file: ./secrets/db_app}
+  db_root: {file: ./secrets/db_root}
+  admin: {file: ./secrets/admin}
