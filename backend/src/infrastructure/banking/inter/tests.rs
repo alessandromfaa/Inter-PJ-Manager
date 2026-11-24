@@ -28,30 +28,42 @@ async fn token(
     let scope = fields.get("scope").map(String::as_str);
     if fields.len() != 4
         || fields.get("grant_type").map(String::as_str) != Some("client_credentials")
-        || !matches!(scope, Some("extrato.read" | "cob.read"))
+        || !matches!(
+            scope,
+            Some(
+                "extrato.read"
+                    | "cob.read"
+                    | "pix.read"
+                    | "boleto-cobranca.read"
+                    | "cob.write"
+                    | "boleto-cobranca.write"
+            )
+        )
         || fields.get("client_id").map(String::as_str) != Some("cliente-teste")
         || fields.get("client_secret").map(String::as_str) != Some("segredo-sintetico")
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
     let n = state.grants.fetch_add(1, SeqCst) + 1;
-    let (prefix, granted) = if scope == Some("cob.read") {
-        (
-            "cobranca",
-            if state.scenario.load(SeqCst) == 13 {
-                "extrato.read"
-            } else {
-                "cob.read"
-            },
-        )
+    let requested = scope.unwrap();
+    let granted = if requested == "cob.read" && state.scenario.load(SeqCst) == 13 {
+        "extrato.read"
     } else {
-        ("sintetico", "extrato.read")
+        requested
     };
+    let prefix = requested.replace(['.', '-'], "_");
     Json(json!({"access_token":format!("{prefix}-{n}"),"scope":granted,"token_type":"Bearer","expires_in":if state.scenario.load(SeqCst)==1{1}else{3600}})).into_response()
 }
 fn authorized(h: &HeaderMap) -> bool {
     h.get("authorization")
-        .is_some_and(|v| v.as_bytes().starts_with(b"Bearer sintetico-"))
+        .is_some_and(|v| v.as_bytes().starts_with(b"Bearer extrato_read-"))
+        && h.get("x-conta-corrente").is_some_and(|v| v == "123")
+}
+fn authorized_scope(h: &HeaderMap, scope: &str) -> bool {
+    let prefix = format!("Bearer {}-", scope.replace(['.', '-'], "_"));
+    h.get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.starts_with(&prefix))
         && h.get("x-conta-corrente").is_some_and(|v| v == "123")
 }
 async fn balance(State(state): State<Arc<MockState>>, h: HeaderMap) -> Response {
@@ -115,7 +127,7 @@ async fn pix(
     if h.get("x-conta-corrente").is_none_or(|v| v != "123")
         || !h
             .get("authorization")
-            .is_some_and(|v| v.as_bytes().starts_with(b"Bearer cobranca-"))
+            .is_some_and(|v| v.as_bytes().starts_with(b"Bearer cob_read-"))
     {
         return StatusCode::FORBIDDEN.into_response();
     }
@@ -130,6 +142,46 @@ async fn pix(
     }))
     .into_response()
 }
+const E2E_ID: &str = "E1234567890123456789012345678901";
+const BILL_ID: &str = "1c0ca501-63bb-47d4-bb22-7c72ab79ab2f";
+async fn issue_pix(
+    axum::extract::Path(txid): axum::extract::Path<String>,
+    h: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    if !authorized_scope(&h, "cob.write") || txid != PIX_ID {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    (
+        StatusCode::CREATED,
+        Json(json!({"txid":txid,"status":"ATIVA","revisao":0,"valor":{"original":body["valor"]["original"]}})),
+    )
+        .into_response()
+}
+async fn issue_bill(h: HeaderMap, Json(body): Json<serde_json::Value>) -> Response {
+    if !authorized_scope(&h, "boleto-cobranca.write") || body["valorNominal"] != 98.76 {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    Json(json!({"codigoSolicitacao":BILL_ID})).into_response()
+}
+async fn received_pix(
+    axum::extract::Path(e2e): axum::extract::Path<String>,
+    h: HeaderMap,
+) -> Response {
+    if !authorized_scope(&h, "pix.read") || e2e != E2E_ID {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    Json(json!({"endToEndId":e2e,"txid":PIX_ID,"valor":"123.45","horario":"2026-11-24T12:00:00Z","devolucoes":[]})).into_response()
+}
+async fn received_bill(
+    axum::extract::Path(id): axum::extract::Path<String>,
+    h: HeaderMap,
+) -> Response {
+    if !authorized_scope(&h, "boleto-cobranca.read") || id != BILL_ID {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    Json(json!({"cobranca":{"codigoSolicitacao":id,"situacao":"RECEBIDO","valorNominal":"98.76","valorTotalRecebido":"98.76","origemRecebimento":"BOLETO"}})).into_response()
+}
 async fn server(scenario: usize) -> (ClientInter, Arc<MockState>) {
     let state = Arc::new(MockState::default());
     state.scenario.store(scenario, SeqCst);
@@ -138,7 +190,10 @@ async fn server(scenario: usize) -> (ClientInter, Arc<MockState>) {
     let app = Router::new()
         .route("/oauth/v2/token", post(token))
         .route("/banking/v2/saldo", get(balance))
-        .route("/pix/v2/cob/{txid}", get(pix))
+        .route("/pix/v2/cob/{txid}", get(pix).put(issue_pix))
+        .route("/pix/v2/pix/{e2e}", get(received_pix))
+        .route("/cobranca/v3/cobrancas", post(issue_bill))
+        .route("/cobranca/v3/cobrancas/{id}", get(received_bill))
         .route("/banking/v2/extrato/completo", get(statement))
         .with_state(state.clone());
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -248,6 +303,40 @@ async fn pix_consulta_com_token_especifico_e_cache_isolado() {
             .await,
         Err(BankError::Contract)
     ));
+}
+#[tokio::test]
+async fn contratos_de_emissao_e_confirmacao_de_recebimentos() {
+    let (client, state) = server(0).await;
+    let pix = client
+        .submit_collection(
+            Some(PIX_ID),
+            &json!({"calendario":{"expiracao":86400},"valor":{"original":"123.45"},"chave":"chave-sintetica"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(pix, PIX_ID);
+    let billing = client
+        .submit_collection(
+            None,
+            &json!({"valorNominal":98.76,"pagador":{"nome":"Cliente sintético"}}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(billing, BILL_ID);
+
+    let received = client.confirm_receipt("PIX", E2E_ID).await.unwrap();
+    assert_eq!(received.txid.as_deref(), Some(PIX_ID));
+    assert_eq!(received.status, "RECEBIDO");
+    assert_eq!(received.gross, 12345);
+    assert_eq!(received.received, 12345);
+    assert_eq!(received.channel.as_deref(), Some("PIX"));
+
+    let bill = client.confirm_receipt("V3", BILL_ID).await.unwrap();
+    assert_eq!(bill.status, "RECEBIDO");
+    assert_eq!(bill.gross, 9876);
+    assert_eq!(bill.received, 9876);
+    assert_eq!(bill.channel.as_deref(), Some("BOLETO"));
+    assert_eq!(state.grants.load(SeqCst), 4);
 }
 #[cfg(feature = "testes-postgres")]
 #[tokio::test]

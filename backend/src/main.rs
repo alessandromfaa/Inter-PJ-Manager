@@ -3,6 +3,7 @@ mod application;
 mod auth;
 mod config;
 mod domain;
+mod pagamentos;
 mod recebimentos;
 mod infrastructure {
     pub mod banking;
@@ -217,6 +218,11 @@ fn router(app: App) -> Router {
     }
     if app.bank.environment() == "MOCK" {
         routes = routes
+            .route(
+                "/api/mock/pagamentos/pix",
+                get(pagamentos::list).post(pagamentos::create),
+            )
+            .route("/api/mock/pagamentos/pix/revisar", post(pagamentos::review))
             .route("/api/mock/pix/cobrancas", post(api::issue_mock_pix))
             .route(
                 "/api/mock/recebimentos/pix",

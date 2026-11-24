@@ -34,7 +34,11 @@ export class ApiError extends Error {
     super(message);
   }
 }
-export async function api<T>(path: string, data?: unknown): Promise<T> {
+export async function api<T>(
+  path: string,
+  data?: unknown,
+  options: { allowEmpty?: boolean } = {},
+): Promise<T> {
   const response = await fetch(
     "/api/" + path,
     data === undefined
@@ -52,8 +56,12 @@ export async function api<T>(path: string, data?: unknown): Promise<T> {
       typeof msg === "string" ? msg : "Falha ao carregar. Tente novamente.",
     );
   }
-  if (response.status === 204) return undefined as T;
-  return response.json();
+  const body = await response.text();
+  if (!body) {
+    if (options.allowEmpty) return undefined as T;
+    throw new ApiError(502, "Resposta incompleta do serviço.");
+  }
+  return JSON.parse(body) as T;
 }
 const currency = new Intl.NumberFormat("pt-BR", {
   style: "currency",

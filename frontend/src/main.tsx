@@ -16,8 +16,10 @@ import {
   LogOut,
   SunMoon,
   CalendarDays,
+  Wallet,
 } from "lucide-react";
 import { Recebimentos } from "./pages/recebimentos";
+import { MockPayments } from "./pages/mock-payments";
 import { Pix } from "./pages/pix";
 import { Banking } from "./pages/banking";
 import { Login } from "./pages/login";
@@ -63,13 +65,15 @@ function App() {
   });
   const [view, setView] = useState("Visão geral");
   const [dark, setDark] = useState(localStorage.getItem("tema") === "escuro");
+  const [sessionExpired, setSessionExpired] = useState(false);
   const reset = () => {
+    setSessionExpired(false);
     setView("Visão geral");
     cache.clear();
     void session.refetch();
   };
   const logout = useMutation({
-    mutationFn: () => api("logout", {}),
+    mutationFn: () => api<void>("logout", {}, { allowEmpty: true }),
     onSuccess: reset,
   });
   const canAudit = session.data?.roles.some(
@@ -89,12 +93,18 @@ function App() {
   if (mode.isPending || session.isPending)
     return <main className="status">Carregando sessão…</main>;
   if (
+    sessionExpired ||
     [session.error, data.error, audit.error].some(
       (e) => e instanceof ApiError && e.status === 401,
     )
   )
-    return <Login done={reset} mode={mode.data} />;
+    return <Login done={reset} mode={mode.data} expired={sessionExpired} />;
   if (!session.data) return <Failure retry={() => void session.refetch()} />;
+  const canSeeMockPayments =
+    mode.data === "MOCK" &&
+    session.data.roles.some((r) =>
+      ["ADMIN", "OPERATOR", "VIEWER", "APPROVER", "AUDITOR"].includes(r),
+    );
   const canLookupPix =
     session.data.roles.some((r) =>
       ["ADMIN", "VIEWER", "OPERATOR"].includes(r),
@@ -119,6 +129,9 @@ function App() {
               ["ADMIN", "OPERATOR", "VIEWER", "AUDITOR"].includes(r),
             )
               ? [{ name: "Recebimentos", icon: Receipt }]
+              : []),
+            ...(canSeeMockPayments
+              ? [{ name: "Pagamentos Pix", icon: Wallet }]
               : []),
             ...(canAudit ? [{ name: "Auditoria", icon: ShieldCheck }] : []),
           ].map(({ name, icon: Icon }) => (
@@ -176,7 +189,13 @@ function App() {
                 </span>
               )}
           </div>
-          {view === "Recebimentos" ? (
+          {view === "Pagamentos Pix" && canSeeMockPayments ? (
+            <MockPayments
+              key={session.data.company_id + ":" + session.data.id}
+              user={session.data}
+              onExpired={() => setSessionExpired(true)}
+            />
+          ) : view === "Recebimentos" ? (
             <Recebimentos
               key={session.data.id + mode.data}
               mode={mode.data}

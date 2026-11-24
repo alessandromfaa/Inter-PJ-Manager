@@ -1,5 +1,8 @@
 # Inter PJ Manager
 
+- Ao iniciar uma sessão, leia `docs/PROJECT_MEMORY.md` e `docs/SESSION_HANDOFF.md` se existirem. Trate-os como contexto auxiliar e confirme o estado atual no checkout.
+- Ao concluir trabalho relevante, atualize esses documentos de forma concisa, sem segredos, respeitando o escopo e as restrições do modo `cx` ativo. Consulte as regras globais do Codex e os prompts do wrapper para limites de gravação, Git e infraestrutura.
+
 - Escreva interface, mensagens operacionais e documentação em português brasileiro.
 - Desenvolva no checkout local. O ambiente SEFIN está fora do escopo. Serviços de desenvolvimento escutam em loopback.
 - Use MOCK no desenvolvimento e nos testes comuns. Bloqueie inicialização com ambiente desconhecido ou escrita bancária habilitada enquanto a capacidade estiver indisponível.
@@ -10,6 +13,25 @@
 - Mantenha certificados, chaves, dumps, senhas e tokens fora de Git, logs e frontend.
 - Execute formatação, lint, auditorias, testes e build pertinentes. Relate separadamente validações documentais, mocks e homologação bancária.
 - Solicite autorização para operações destrutivas, publicação, mudanças em produção ou transação real.
+
+## Projeto e execução
+
+O Inter PJ Manager é uma aplicação de gestão financeira empresarial. O frontend React acessa a API Axum pela mesma origem; o backend autentica e resolve a empresa, persiste no PostgreSQL e usa adaptadores MOCK ou Inter. Consulte `docs/architecture.md`, `docs/api-interna.md` e `docs/inter-api-matrix.md` para os limites e contratos; confirme o código quando a documentação estiver desatualizada.
+
+- `backend/`: Rust edição 2024, Axum 0.8, Tokio e SQLx 0.9.1; `src/main.rs` registra rotas, e `src/api`, `src/auth.rs`, `src/recebimentos` e `src/infrastructure/banking` contêm handlers, autenticação, recebimentos e adaptadores. As migrations SQL estão em `backend/migrations/` e os testes em `backend/tests/`.
+- `frontend/`: React 19, TypeScript 5.9, Vite 7, Tailwind 4 e TanStack Query 5; telas em `src/pages/`, cliente HTTP em `src/services/`, testes Vitest em `tests/` e Playwright em `e2e/`.
+- `infrastructure/`: Dockerfile do backend e scripts locais; `compose.yml` integra PostgreSQL 17, bootstrap, API e NGINX. `compose.inter.yml` configura integração externa e `compose.e2e.yml` isola a pilha de testes. `.env.example` documenta as variáveis sem credenciais.
+- `docs/` reúne arquitetura, operação, segurança, contrato HTTP, matriz Inter e plano de implementação. `.github/workflows/qualidade.yml` executa verificações em MOCK. Não foi identificado Makefile ou pipeline de deploy.
+
+### Comandos verificados na documentação e configuração
+
+Na raiz, em um clone novo sem `.env`, crie-o com `cp .env.example .env`; para iniciar a instalação local MOCK, use `./infrastructure/scripts/iniciar.sh`. Inspecione com `docker compose ps -a` e `curl -f http://127.0.0.1:8080/ready`. O script herda o ambiente: confira previamente que a configuração efetiva é MOCK. `docker compose down` encerra a pilha preservando o volume. O script `./infrastructure/scripts/mock-local.sh` oferece execução nativa; Ctrl+C encerra seus processos. Leia `README.md` e `docs/desenvolvimento.md` antes de iniciar serviços ou alterar configuração.
+
+Em `backend/`: `cargo fmt --check`, `cargo clippy --locked --all-targets --all-features -- -D warnings`, `cargo test --locked` e `cargo build --locked --release`. A suíte `cargo test --locked --features testes-postgres` requer `TEST_DATABASE_URL` para banco descartável em `127.0.0.1` chamado `inter_pj_test`; ela aplica migrations e grava dados sintéticos. A inicialização do backend também aplica migrations; o bootstrap `cargo run --locked -- bootstrap` cria os dados iniciais. Confira o destino do banco e as permissões antes de executar.
+
+Em `frontend/`: `npm ci --legacy-peer-deps`, `npm run lint`, `npm test`, `npm run build` e `npm run dev -- --host 127.0.0.1 --port 5173 --strictPort`. A documentação requer Node 22.12 ou posterior da série 22 e Rust estável com rustfmt e Clippy. `cargo audit` e `npm audit` são as auditorias documentadas. Para Playwright, siga a configuração isolada de `docs/desenvolvimento.md`, confirme MOCK no ambiente efetivo e, com a pilha isolada na porta 18080 e as credenciais E2E configuradas, execute em `frontend/`: `E2E_ORIGIN=http://127.0.0.1:18080 npm run e2e`. Não use uma instância com dados de produção.
+
+Antes de alterar, confira Git, instruções locais e efeitos em dados e contratos; preserve alterações existentes. Depois, execute as verificações pertinentes e informe limitações, distinguindo testes locais de homologação bancária. Não execute autonomamente exclusão de volumes persistentes ou backups, restauração sobre produção ou outras operações destrutivas críticas. Migrations em produção, publicação, transações reais e exposição de serviços exigem autorização específica aplicável. Nunca registre segredos ou conteúdo de arquivos privados.
 
 ## Coordenação multiagente
 

@@ -105,7 +105,13 @@ export function Recebimentos({ mode, user }: { mode: Mode; user: Identity }) {
   });
   const op = useMutation({
     mutationFn: ({ path, body }: { path: string; body: unknown }) =>
-      api<unknown>(path, body),
+      api<unknown>(path, body, {
+        allowEmpty: [
+          "clientes",
+          "mock/cobrancas-v3/atualizar",
+          "recebimentos/reprocessar",
+        ].includes(path),
+      }),
     retry: false,
     onSuccess: (_, input) => {
       if (input.path === "clientes") {

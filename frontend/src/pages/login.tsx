@@ -11,7 +11,15 @@ const schema = z.object({
   email: z.email("Informe um e-mail válido."),
   password: z.string().min(1, "Informe sua senha."),
 });
-export function Login({ done, mode }: { done: () => void; mode: Mode }) {
+export function Login({
+  done,
+  mode,
+  expired = false,
+}: {
+  done: () => void;
+  mode: Mode;
+  expired?: boolean;
+}) {
   const {
     register,
     handleSubmit,
@@ -54,7 +62,11 @@ export function Login({ done, mode }: { done: () => void; mode: Mode }) {
       <section className="login">
         <span className="badge">{environmentLabel(mode)}</span>
         <h2>Acessar painel</h2>
-        <p>Entre com suas credenciais da empresa.</p>
+        {expired ? (
+          <p role="alert">Sua sessão expirou. Entre novamente para continuar.</p>
+        ) : (
+          <p>Entre com suas credenciais da empresa.</p>
+        )}
         <form onSubmit={handleSubmit((data) => login.mutate(data))} noValidate>
           <label>
             E-mail

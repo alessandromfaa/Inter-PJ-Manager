@@ -49,14 +49,27 @@ Vite encaminha /api ao backend local. A interface usa React, TanStack Query, Rea
 
 ## Teste de navegador
 
-Com a pilha MOCK iniciada localmente, configure E2E_ORIGIN para a URL em loopback, E2E_EMAIL para o administrador de teste e E2E_PASSWORD para sua senha. Para o Compose padrão, na raiz do projeto:
+Use uma stack própria para o navegador. O arquivo `compose.e2e.yml` define outro projeto Compose, volume PostgreSQL, empresa e segredos. A porta permanece em loopback. Não execute Playwright contra a instância configurada com dados de produção.
 
 ```sh
-export E2E_PASSWORD="$(cat secrets/admin)"
-cd frontend
-npx playwright install chromium
-npm run e2e
-unset E2E_PASSWORD
+umask 077
+mkdir -p secrets/e2e
+existing=$(find secrets/e2e -maxdepth 1 -type f | wc -l)
+if [ "$existing" -ne 0 ] && [ "$existing" -ne 3 ]; then
+  echo "Conjunto parcial de segredos E2E; remova-o manualmente ou restaure os três arquivos." >&2
+  exit 1
+fi
+for secret in db_root db_app admin; do
+  test -e "secrets/e2e/$secret" || openssl rand -out "secrets/e2e/$secret" -hex 32
+done
+chmod 700 secrets/e2e
+chmod 444 secrets/e2e/*
+APP_PORT=18080 APP_ORIGIN=http://127.0.0.1:18080 \
+  docker compose -p inter-pj-manager-e2e -f compose.yml -f compose.e2e.yml up -d --build
+E2E_ORIGIN=http://127.0.0.1:18080 \
+E2E_EMAIL=admin@e2e.local \
+E2E_PASSWORD="$(cat secrets/e2e/admin)" \
+  npm --prefix frontend exec playwright test
 ```
 
-CHROME_PATH permite usar um Chromium compatível já instalado. Playwright valida o formulário, autenticação, navegação, filtro do extrato, consulta de auditoria e revogação. A CI executa verificações em MOCK e publica somente o resultado dos testes.
+O Playwright recusa qualquer origem, conta ou senha que não pertença à pilha isolada acima. Não execute a suíte contra o Compose padrão ou contra uma base que contenha dados de produção. `CHROME_PATH` permite usar um Chromium compatível já instalado. Playwright valida o formulário, autenticação, navegação, filtro do extrato, consulta de auditoria, revogação e os fluxos de recebimentos. A CI executa verificações em MOCK e publica somente o resultado dos testes.

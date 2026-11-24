@@ -1,0 +1,27 @@
+name: inter-pj-manager-e2e
+
+services:
+  api:
+    environment:
+      APP_ENV: development
+      APP_ORIGIN: http://127.0.0.1:18080
+      INTER_ENV: mock
+      ENABLE_REAL_PAYMENTS: "false"
+      ENABLE_BANK_WRITES: "false"
+  bootstrap:
+    environment:
+      APP_ENV: development
+      APP_ORIGIN: http://127.0.0.1:18080
+      INTER_ENV: mock
+      ENABLE_REAL_PAYMENTS: "false"
+      ENABLE_BANK_WRITES: "false"
+      ADMIN_EMAIL: admin@e2e.local
+      COMPANY_NAME: Empresa sintética E2E
+
+secrets:
+  db_app:
+    file: ./secrets/e2e/db_app
+  db_root:
+    file: ./secrets/e2e/db_root
+  admin:
+    file: ./secrets/e2e/admin

@@ -147,7 +147,8 @@ select {
   padding: 0.65rem 0.8rem;
   color: inherit;
 }
-form input {
+form input,
+.mock-payment-form select {
   display: block;
   width: 100%;
   margin: 0.4rem 0;
@@ -476,6 +477,20 @@ th:last-child {
 .forecast dd {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+.mock-payment-list {
+  padding: 0;
+  list-style: none;
+}
+.mock-payment-item {
+  border-top: 1px solid var(--border);
+  padding-bottom: 1rem;
+}
+.mock-payment-confirmation {
+  margin-top: 0.75rem;
+  display: grid;
+  justify-items: start;
+  gap: 0.75rem;
 }
 .shell aside {
   position: sticky;

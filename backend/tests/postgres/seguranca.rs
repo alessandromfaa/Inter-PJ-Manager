@@ -308,15 +308,160 @@ async fn exercitar_emissao_mock(
     .await?;
     assert_eq!(serde_json::to_value(read)?, charge);
     assert!(matches!(
-        infrastructure::banking::mock_pix::find(pool, other, txid).await,
+        infrastructure::banking::mock_pix::find(
+            pool,
+            other,
+            domain::pix::Txid::for_mock_intent(id),
+        )
+        .await,
         Err(infrastructure::banking::inter::BankError::PixNotFound)
     ));
     let n: i64 = query_scalar("SELECT count(*) FROM audit_logs WHERE company_id=$1 AND actor=$2 AND action='Cobrança Pix emitida em MOCK'")
         .bind(company).bind(actor).fetch_one(pool).await?;
     assert_eq!(n, 1);
+    exercitar_recebimentos_mock(api, pool, cookie, origin, company, txid).await?;
     query("DELETE FROM user_roles WHERE user_id=$1 AND role='OPERATOR'")
         .bind(actor)
         .execute(pool)
         .await?;
+    Ok(())
+}
+
+async fn exercitar_recebimentos_mock(
+    api: &Router,
+    pool: &PgPool,
+    cookie: &str,
+    origin: &str,
+    company: Uuid,
+    txid: domain::pix::Txid,
+) -> Result<()> {
+    let receive = || {
+        chamada(
+            api,
+            "/api/mock/recebimentos/pix",
+            cookie,
+            Some(json!({"txid":txid.as_str()})),
+            origin,
+        )
+    };
+    let (first, second) = tokio::join!(receive(), receive());
+    assert_eq!(first.status(), StatusCode::ACCEPTED);
+    assert_eq!(second.status(), StatusCode::ACCEPTED);
+    let first: Value = serde_json::from_slice(&to_bytes(first.into_body(), 8192).await?)?;
+    let second: Value = serde_json::from_slice(&to_bytes(second.into_body(), 8192).await?)?;
+    assert_eq!(first, second);
+    let e2e = first["end_to_end_id"].as_str().unwrap();
+    assert_eq!(e2e.len(), 32);
+    query("UPDATE collection_events SET next_at='-infinity' WHERE company_id=$1 AND family='PIX' AND reference=$2 AND state='AGUARDANDO'")
+        .bind(company).bind(e2e).execute(pool).await?;
+    assert!(
+        recebimentos::worker::process_one(&App {
+            db: pool.clone(),
+            secure: true,
+            origin: origin.into(),
+            dummy: Arc::new(String::new()),
+            workers: Arc::new(Semaphore::new(1)),
+            bank: Arc::new(MockBank(pool.clone())),
+        })
+        .await?
+    );
+    let result: (String, i64, String) = sqlx_core::query_as::query_as(
+        "SELECT reconciliation,received_cents,status FROM collection_results WHERE company_id=$1 AND family='PIX' AND reference=$2",
+    )
+    .bind(company)
+    .bind(e2e)
+    .fetch_one(pool)
+    .await?;
+    assert_eq!(result, ("CONCILIADO".into(), 4250, "RECEBIDO".into()));
+    let pix_events: i64 = query_scalar(
+        "SELECT count(*) FROM collection_events WHERE company_id=$1 AND family='PIX' AND reference=$2",
+    )
+    .bind(company)
+    .bind(e2e)
+    .fetch_one(pool)
+    .await?;
+    assert_eq!(pix_events, 1);
+
+    let customer = Uuid::new_v4();
+    assert_eq!(
+        chamada(
+            api,
+            "/api/clientes",
+            cookie,
+            Some(json!({"id":customer,"name":"Cliente de teste"})),
+            origin,
+        )
+        .await
+        .status(),
+        StatusCode::CREATED
+    );
+    let code = Uuid::new_v4();
+    let billing = json!({
+        "intent_id":code,
+        "customer_id":customer,
+        "original_cents":"9876",
+        "due_on":(time::OffsetDateTime::now_utc()+time::Duration::days(3)).date(),
+    });
+    let issued = chamada(
+        api,
+        "/api/mock/cobrancas-v3",
+        cookie,
+        Some(billing.clone()),
+        origin,
+    )
+    .await;
+    assert_eq!(issued.status(), StatusCode::ACCEPTED);
+    let replay = chamada(api, "/api/mock/cobrancas-v3", cookie, Some(billing), origin).await;
+    assert_eq!(replay.status(), StatusCode::OK);
+    query("UPDATE collection_events SET next_at='-infinity' WHERE company_id=$1 AND family='V3' AND reference=$2 AND state='AGUARDANDO'")
+        .bind(company).bind(code.to_string()).execute(pool).await?;
+    let app = App {
+        db: pool.clone(),
+        secure: true,
+        origin: origin.into(),
+        dummy: Arc::new(String::new()),
+        workers: Arc::new(Semaphore::new(1)),
+        bank: Arc::new(MockBank(pool.clone())),
+    };
+    assert!(recebimentos::worker::process_one(&app).await?);
+    let pending: String = query_scalar(
+        "SELECT status FROM collection_results WHERE company_id=$1 AND family='V3' AND reference=$2",
+    )
+    .bind(company)
+    .bind(code.to_string())
+    .fetch_one(pool)
+    .await?;
+    assert_eq!(pending, "A_RECEBER");
+    assert_eq!(
+        chamada(
+            api,
+            "/api/mock/cobrancas-v3/atualizar",
+            cookie,
+            Some(json!({"code":code,"action":"PIX"})),
+            origin,
+        )
+        .await
+        .status(),
+        StatusCode::ACCEPTED
+    );
+    query("UPDATE collection_events SET next_at='-infinity' WHERE company_id=$1 AND family='V3' AND reference=$2 AND state='AGUARDANDO'")
+        .bind(company).bind(code.to_string()).execute(pool).await?;
+    assert!(recebimentos::worker::process_one(&app).await?);
+    let paid: (String, i64, Option<String>) = sqlx_core::query_as::query_as(
+        "SELECT reconciliation,received_cents,channel FROM collection_results WHERE company_id=$1 AND family='V3' AND reference=$2",
+    )
+    .bind(company)
+    .bind(code.to_string())
+    .fetch_one(pool)
+    .await?;
+    assert_eq!(paid, ("CONCILIADO".into(), 9876, Some("PIX".into())));
+    let v3_events: i64 = query_scalar(
+        "SELECT count(*) FROM collection_events WHERE company_id=$1 AND family='V3' AND reference=$2",
+    )
+    .bind(company)
+    .bind(code.to_string())
+    .fetch_one(pool)
+    .await?;
+    assert_eq!(v3_events, 2);
     Ok(())
 }

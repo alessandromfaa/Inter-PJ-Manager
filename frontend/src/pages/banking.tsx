@@ -150,7 +150,7 @@ export function Banking({
 }) {
   const cache = useQueryClient();
   const sync = useMutation({
-    mutationFn: () => api<void>("sincronizar", {}),
+    mutationFn: () => api<void>("sincronizar", {}, { allowEmpty: true }),
     onSettled: () => cache.invalidateQueries({ queryKey: ["painel"] }),
   });
   const reading = data.reading;

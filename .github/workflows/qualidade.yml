@@ -40,7 +40,16 @@ jobs:
           npx playwright install --with-deps chromium
       - name: Validar Compose e navegação
         run: |
-          ./infrastructure/scripts/iniciar.sh
-          curl --retry 20 --retry-all-errors --retry-delay 2 -fsS http://127.0.0.1:8080/ready
-          export E2E_PASSWORD="$(cat secrets/admin)"
+          umask 077
+          mkdir -p secrets/e2e
+          openssl rand -out secrets/e2e/db_root -hex 32
+          openssl rand -out secrets/e2e/db_app -hex 32
+          openssl rand -out secrets/e2e/admin -hex 32
+          chmod 700 secrets/e2e && chmod 444 secrets/e2e/*
+          APP_PORT=18080 APP_ORIGIN=http://127.0.0.1:18080 \
+            docker compose -p inter-pj-manager-e2e -f compose.yml -f compose.e2e.yml up -d --build
+          curl --retry 30 --retry-all-errors --retry-delay 2 -fsS http://127.0.0.1:18080/ready
+          export E2E_ORIGIN=http://127.0.0.1:18080
+          export E2E_EMAIL=admin@e2e.local
+          export E2E_PASSWORD="$(cat secrets/e2e/admin)"
           cd frontend && npm run e2e

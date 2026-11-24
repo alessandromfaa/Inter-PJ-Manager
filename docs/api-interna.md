@@ -46,3 +46,28 @@ Em MOCK, `POST /api/mock/pix/cobrancas` aceita uma sessão ADMIN ou OPERATOR, a 
 A resposta inclui `mock_code.copy_paste` e `mock_code.expires_at` (RFC 3339). O mesmo resultado pode ser consultado pelo txid em `POST /api/pix/cobrancas/consultar`. O BR Code de demonstração codifica uma URL dinâmica sob `pix.invalid`. Tem validade de 24 horas e dispensa chave Pix, certificado e acesso à rede bancária. A interface mostra o horário em Fortaleza e oculta o QR Code após expirar. O prazo do código é independente da situação de liquidação.
 
 A tela salva o UUID e o valor fictício da intenção na sessão da aba, com chave por empresa e usuário. Uma falha de rede permite retomar com o mesmo UUID. Após uma emissão confirmada, **Iniciar outra emissão** prepara um novo pedido. Guarde o txid para consultar a cobrança depois de fechar a aba.
+
+## Recebimentos e Cobrança V3 em MOCK
+
+| Rota | Permissão e resultado |
+|---|---|
+| POST /api/clientes | ADMIN ou OPERATOR. Cadastra um cliente na empresa da sessão; repetição idêntica é aceita. |
+| POST /api/mock/recebimentos/pix | ADMIN ou OPERATOR em MOCK. Registra uma única confirmação fictícia por txid e retorna o mesmo `end_to_end_id` em reenvios. |
+| POST /api/mock/cobrancas-v3 | ADMIN ou OPERATOR em MOCK. Registra a intenção por UUID e retorna `codigo_solicitacao` e situação. |
+| POST /api/mock/cobrancas-v3/atualizar | ADMIN ou OPERATOR em MOCK. Simula liquidação por PIX ou BOLETO, ou cancelamento. |
+| GET /api/recebimentos | Perfis de consulta da empresa. Lista clientes, cobranças, eventos ou confirmações com paginação. |
+| POST /api/recebimentos/reprocessar | ADMIN. Recoloca um evento esgotado na fila persistente. |
+
+O recebimento fica em processamento até o worker consultar novamente a fonte e gravar a confirmação. A chave única do evento evita repetir o mesmo efeito. Uma confirmação informa `CONCILIADO`, `PENDENTE` ou `DIVERGENTE`; solicitação aceita e liquidação são estados distintos.
+
+## Preparação de pagamentos Pix em MOCK — Fase 4.1
+
+Estas rotas existem somente quando `INTER_ENV=mock` e não enviam dinheiro:
+
+| Rota | Permissão e resultado |
+|---|---|
+| GET /api/mock/pagamentos/pix?page=N | ADMIN, OPERATOR, VIEWER, APPROVER ou AUDITOR da empresa. Lista intenções fictícias e catálogo sintético de destinatários. |
+| POST /api/mock/pagamentos/pix | ADMIN ou OPERATOR. Cria um rascunho idempotente por empresa, autor e `intent_id`; valor em centavos exatos. |
+| POST /api/mock/pagamentos/pix/revisar | ADMIN ou OPERATOR, somente o autor. Confirma destinatário e valor persistidos e muda `RASCUNHO` para `EM_REVISAO`. |
+
+Não há rota de aprovação, autorização MFA ou execução bancária nesta fatia. Repetições idênticas retornam a mesma intenção; divergências resultam em conflito. Auditoria e mudança de estado são gravadas na mesma transação.

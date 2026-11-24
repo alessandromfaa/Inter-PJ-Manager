@@ -19,6 +19,8 @@ O aceite da Fase 2 reúne consultas pontuais de saldo e extrato vazio e com lan�
 |---|---|
 | Consulta de cobrança imediata | Implementada por txid no painel. O adaptador valida identificador, situação, revisão, valor e escopo OAuth. A consulta externa depende de habilitação explícita e permissão na conta. |
 | Emissão Pix e QR Code | Entregue em MOCK. PostgreSQL preserva txid, valor, código e expiração no reenvio. O teste de navegador perde a primeira resposta e compara o texto decodificado do QR ao Pix Copia e Cola após retomar. Emissão pelo Inter continua pendente. |
-| Recebimento Pix em MOCK | Próximo incremento. Registrar recebimento fictício, relacionar txid e endToEndId e provar que reprocessar um evento produz uma única liquidação. |
-| Clientes e Cobrança V3 | Vincular pagador à empresa e acompanhar a solicitação por codigoSolicitacao até o estado confirmado. |
-| Webhooks e conciliação | Validar a origem conforme a família, persistir e deduplicar eventos, consultar recebimentos e confrontar identificadores e valores. |
+| Recebimento Pix em MOCK | Entregue. O recebimento fictício relaciona txid e endToEndId, a fila deduplica o evento e a confirmação só registra liquidação após consultar a fonte MOCK. |
+| Clientes e Cobrança V3 | Entregue em MOCK. O pagador pertence à empresa da sessão e a solicitação acompanha codigoSolicitacao, processamento, recebimento ou cancelamento. Emissão externa permanece opt-in de SANDBOX. |
+| Webhooks e conciliação | Infraestrutura implementada para Pix e V3, com receptor mTLS em loopback, associação da conta, persistência antes do processamento, deduplicação, retentativas e consulta posterior à fonte. A configuração de callbacks e a homologação externa dependem do ambiente autorizado. |
+
+O ciclo MOCK da Fase 3 está concluído. O aceite automatizado cobre repetição concorrente, estados pendente e recebido, valor exato, canal e conciliação Pix/V3. As constraints e consultas por empresa preservam a segregação, cuja cobertura negativa específica de recebimentos ainda será ampliada. A conclusão externa da fase requer homologar emissão, consulta posterior e callbacks no sandbox oficial; produção permanece somente leitura.
