@@ -50,3 +50,30 @@ Entre como ADMIN e use **Sincronizar leitura**. O login e a navegação consulta
 Em produção, o proprietário deve configurar explicitamente INTER_ENV=production, APP_ENV=production, APP_ORIGIN HTTPS, diretório production com credenciais próprias e proxy HTTPS. Proteja volumes e backups com criptografia no ambiente de destino. O cliente carrega a identidade mTLS na inicialização; após rotação, recrie o serviço api. A implantação atual configura uma conta por instância. Não habilite múltiplas réplicas com as mesmas credenciais sem coordenação compartilhada das cotas OAuth e Banking.
 
 A importação divide intervalos volumosos em períodos menores. Mais de 10 mil operações num único dia, mais de 100 mil por importação ou duração superior a quatro minutos encerram a tentativa sem avançar o checkpoint. O uso de scroll para esse perfil de volume permanece pendente. O painel externo utiliza os componentes efetivamente informados pelo Inter. Dados de cobranças, pagamentos e conciliação entram nas fases seguintes.
+
+## Verificar acesso de leitura com conta de produção
+
+No Internet Banking PJ, abra **Integrar → Minhas Integrações** e confira a situação da integração. Quando estiver em **Novo**, abra **Ações** (três pontos) e escolha **Download chave e certificado**. Guarde o certificado `.crt`, a chave `.key` e as duas credenciais da mesma integração em armazenamento privado. O Inter disponibiliza o download uma única vez. Se a integração já estiver ativa, procure os arquivos com o responsável pelo cadastro ou no cofre da empresa. Se os arquivos foram perdidos, crie uma nova integração de leitura e use os quatro itens emitidos para ela. [Instruções de download do Inter](https://ajuda.inter.co/conta-digital-pessoa-juridica/como-faco-o-download-do-certificado-e-credenciais-da-minha-api)
+
+Para uma conta PJ de produção, cadastre uma integração dedicada com a permissão de consulta de saldo e extrato (`extrato.read`). Salve os arquivos client_id, client_secret, cert.pem e key.pem em INTER_CREDENTIALS_ROOT/production. Configure o arquivo privado .env.producao-leitura com APP_ENV e INTER_ENV em production, BANK_PROVIDER=inter, ENABLE_BANK_READS=true, ambas as flags de escrita em false, o caminho absoluto INTER_CREDENTIALS_ROOT e INTER_ACCOUNT_NUMBER com dígito, sem zeros iniciais.
+
+A partir da raiz do checkout preparado, execute o comando abaixo. O ambiente do perfil vale apenas dentro do subshell. O diagnóstico solicita um token por mTLS e consulta o saldo da conta. A saída informa o ambiente e o sucesso ou a classe de falha. O valor fica somente na memória do processo. Esse comando dispensa o PostgreSQL e o servidor web.
+
+```sh
+(
+  set -a
+  . ./.env.producao-leitura
+  set +a
+  ./backend/target/release/inter-pj-manager verificar-acesso-saldo
+)
+```
+
+Para conferir o extrato do último dia encerrado em Fortaleza, substitua o argumento por `verificar-acesso-extrato`. O comando usa o mesmo cliente e as mesmas verificações da importação, processa a resposta em memória e informa a data e se houve lançamentos.
+
+Uma consulta bem-sucedida em produção comprova acesso de leitura à conta configurada. Registre essa evidência separadamente da homologação em sandbox.
+
+## Recebimentos Pix em modo de consulta
+
+A opção `ENABLE_PIX_CHARGE_READS` controla a consulta individual de cobranças imediatas no adaptador externo. O valor inicial é `false`. Para um ambiente autorizado de leitura, a integração precisa conceder `cob.read` e o administrador precisa configurar `ENABLE_BANK_READS=true` e `ENABLE_PIX_CHARGE_READS=true` no perfil desse ambiente. As flags de escrita e pagamentos continuam em `false`. O backend pede o token específico ao consultar uma cobrança e mantém seu cache separado do token do extrato. A empresa é determinada pela sessão e a integração fornece o número da conta.
+
+Para exercitar o fluxo local, use MOCK e consulte o identificador preenchido na tela **Cobranças Pix**. O valor mostrado é o original da cobrança. O relatório de recebimentos e a conciliação dependem da consulta aos Pix efetivamente recebidos.

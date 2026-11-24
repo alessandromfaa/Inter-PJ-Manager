@@ -1,5 +1,7 @@
 mod client;
 mod contract;
+mod receipts;
+mod sandbox;
 pub use contract::Balance;
 mod store;
 #[cfg(test)]
@@ -17,7 +19,7 @@ use sha2::{Digest, Sha256};
 use sqlx_core::{query::query, query_scalar::query_scalar};
 use sqlx_postgres::PgPool;
 use std::{env, fs::File, io::Read, os::unix::fs::PermissionsExt, path::Path, time::Duration};
-use time::OffsetDateTime;
+use time::{Date, OffsetDateTime};
 use uuid::Uuid;
 use x509_parser::pem::parse_x509_pem;
 use zeroize::Zeroizing;
@@ -26,6 +28,14 @@ use zeroize::Zeroizing;
 pub enum BankError {
     #[error("A conta não está vinculada a esta empresa.")]
     Account,
+    #[error("Cobrança Pix não encontrada na conta.")]
+    PixNotFound,
+    #[error("Consulta de cobranças Pix desabilitada para esta integração.")]
+    PixDisabled,
+    #[error(
+        "Este identificador já foi usado com outro valor. Consulte a cobrança ou inicie outra emissão."
+    )]
+    PixConflict,
     #[error("Outra sincronização está em andamento.")]
     Busy,
     #[error("O Inter limitou as consultas. Aguarde antes de sincronizar novamente.")]
@@ -59,6 +69,9 @@ impl BankError {
     }
     pub fn code(&self) -> &'static str {
         match self {
+            Self::PixNotFound => "COBRANCA_AUSENTE",
+            Self::PixConflict => "EMISSAO_DIVERGENTE",
+            Self::PixDisabled => "PIX_DESABILITADO",
             Self::Account => "CONTA",
             Self::Busy => "EM_ANDAMENTO",
             Self::Limit => "LIMITE",
@@ -76,6 +89,7 @@ impl BankError {
     }
 }
 pub struct InterBank {
+    pix_lookup_enabled: bool,
     db: PgPool,
     company: Uuid,
     account: Uuid,
@@ -104,15 +118,21 @@ fn material(path: &Path, private: bool) -> Result<Zeroizing<Vec<u8>>> {
     );
     Ok(data)
 }
-impl InterBank {
-    pub async fn configured(db: PgPool) -> Result<Self> {
+struct Connection {
+    client: ClientInter,
+    mode: &'static str,
+    expires: OffsetDateTime,
+    binding: Vec<u8>,
+}
+
+impl Connection {
+    fn load() -> Result<Self> {
         let (mode, base) = match var("INTER_ENV", "mock").as_str() {
             "sandbox" => ("SANDBOX", "https://cdpj-sandbox.partners.uatinter.co"),
             "production" => ("PRODUCTION", "https://cdpj.partners.bancointer.com.br"),
             _ => anyhow::bail!("Ambiente Inter inválido"),
         };
-        let company = env::var("INTER_COMPANY_ID")?.parse()?;
-        let account = env::var("INTER_ACCOUNT_ID")?.parse()?;
+
         let number = env::var("INTER_ACCOUNT_NUMBER")?;
         ensure!(
             !number.is_empty()
@@ -151,18 +171,72 @@ impl InterBank {
         bundle.extend_from_slice(&material(&directory.join("key.pem"), true)?);
         let identity =
             Identity::from_pem(&bundle).map_err(|_| anyhow::anyhow!("Identidade mTLS inválida"))?;
-        let http = Self::http_builder()
+        let http = InterBank::http_builder()
             .identity(identity)
             .build()
             .context("Falha ao carregar identidade mTLS")?;
         let binding = Sha256::digest(format!("{mode}:{number}")).to_vec();
+        Ok(Self {
+            mode,
+            expires,
+            binding,
+            client: ClientInter::new(http, base.into(), number, client_id, secret),
+        })
+    }
+}
+
+fn today() -> Date {
+    OffsetDateTime::now_utc()
+        .to_offset(time::macros::offset!(-3))
+        .date()
+}
+
+pub async fn verify_statement_access() -> Result<()> {
+    let day = today()
+        .previous_day()
+        .context("Data de consulta inválida")?;
+    let connection = Connection::load()?;
+    let entries = connection.client.statement(day, day).await?;
+    let result = if entries.is_empty() {
+        "sem lançamentos"
+    } else {
+        "com lançamentos validados"
+    };
+    println!(
+        "{}: consulta de extrato de {day} concluída ({result}).",
+        connection.mode
+    );
+    Ok(())
+}
+
+pub async fn verify_balance_access() -> Result<()> {
+    let connection = Connection::load()?;
+    connection.client.balance().await?;
+    println!(
+        "{}: autenticação e consulta de saldo concluídas.",
+        connection.mode
+    );
+    Ok(())
+}
+
+impl InterBank {
+    pub async fn configured(db: PgPool) -> Result<Self> {
+        let company = env::var("INTER_COMPANY_ID")?.parse()?;
+        let account = env::var("INTER_ACCOUNT_ID")?.parse()?;
+        let Connection {
+            client,
+            mode,
+            expires,
+            binding,
+        } = Connection::load()?;
         let bank = Self {
+            pix_lookup_enabled: var("ENABLE_PIX_CHARGE_READS", "false") == "true",
             db,
             company,
             account,
             mode,
             expires,
-            client: ClientInter::new(http, base.into(), number, client_id, secret),
+            client,
         };
         bank.bind_account(&binding).await?;
         Ok(bank)
@@ -172,6 +246,7 @@ impl InterBank {
             .use_rustls_tls()
             .https_only(true)
             .no_proxy()
+            .retry(reqwest::retry::never())
             .redirect(reqwest::redirect::Policy::none())
             .min_tls_version(reqwest::tls::Version::TLS_1_2)
             .connect_timeout(Duration::from_secs(5))
@@ -203,6 +278,65 @@ impl InterBank {
 impl BankProvider for InterBank {
     fn environment(&self) -> &'static str {
         self.mode
+    }
+    async fn pix_charge(
+        &self,
+        company: Uuid,
+        txid: crate::domain::pix::Txid,
+    ) -> Result<crate::domain::pix::PixCharge, BankError> {
+        self.tenant(company)?;
+        if !self.pix_lookup_enabled {
+            return Err(BankError::PixDisabled);
+        }
+        if self.expires <= OffsetDateTime::now_utc() {
+            return Err(BankError::Certificate);
+        }
+        tokio::time::timeout(
+            Duration::from_secs(60),
+            self.client.pix_charge(txid, self.mode),
+        )
+        .await
+        .map_err(|_| BankError::Timeout)?
+    }
+    fn sandbox_issuance(&self) -> bool {
+        self.mode == "SANDBOX"
+            && var("ENABLE_SANDBOX_COLLECTIONS", "false") == "true"
+            && var("ENABLE_BANK_WRITES", "false") == "true"
+    }
+    async fn issue_sandbox(
+        &self,
+        company: Uuid,
+        actor: Uuid,
+        order: crate::recebimentos::SandboxOrder,
+    ) -> Result<crate::recebimentos::OrderState, BankError> {
+        self.tenant(company)?;
+        if !self.sandbox_issuance() {
+            return Err(BankError::Account);
+        }
+        if self.expires <= OffsetDateTime::now_utc() {
+            return Err(BankError::Certificate);
+        }
+        self.sandbox_order(actor, order).await
+    }
+    fn collection_binding(&self) -> Option<(Uuid, Uuid)> {
+        Some((self.company, self.account))
+    }
+    async fn confirm_receipt(
+        &self,
+        company: Uuid,
+        family: &str,
+        reference: &str,
+    ) -> Result<crate::recebimentos::Confirmation, BankError> {
+        self.tenant(company)?;
+        if self.expires <= OffsetDateTime::now_utc() {
+            return Err(BankError::Certificate);
+        }
+        tokio::time::timeout(
+            Duration::from_secs(60),
+            self.client.confirm_receipt(family, reference),
+        )
+        .await
+        .map_err(|_| BankError::Timeout)?
     }
     async fn snapshot(&self, company: Uuid) -> Result<Dashboard, BankError> {
         self.tenant(company)?;

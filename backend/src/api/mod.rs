@@ -14,6 +14,8 @@ use serde::Serialize;
 use sqlx_core::{query::query, row::Row};
 use uuid::Uuid;
 pub enum Error {
+    Conflict,
+    Missing,
     Invalid(StatusCode),
     Bank(BankError),
     Unauthorized,
@@ -33,6 +35,9 @@ impl IntoResponse for Error {
         let (status, msg) = match self {
             Self::Bank(err) => {
                 let status = match err {
+                    BankError::PixNotFound => StatusCode::NOT_FOUND,
+                    BankError::PixConflict => StatusCode::CONFLICT,
+                    BankError::PixDisabled => StatusCode::FORBIDDEN,
                     BankError::Account => StatusCode::FORBIDDEN,
                     BankError::Busy | BankError::Mock => StatusCode::CONFLICT,
                     BankError::Limit => StatusCode::TOO_MANY_REQUESTS,
@@ -48,6 +53,11 @@ impl IntoResponse for Error {
                 };
                 return (status, Json(msg)).into_response();
             }
+            Self::Missing => (StatusCode::NOT_FOUND, "Registro não encontrado na empresa."),
+            Self::Conflict => (
+                StatusCode::CONFLICT,
+                "O estado atual ou os dados da solicitação impedem esta operação.",
+            ),
             Self::Invalid(status) => (
                 status,
                 "Corpo da requisição inválido ou excede o limite permitido.",
@@ -152,4 +162,86 @@ pub async fn audit(State(a): State<App>, h: HeaderMap) -> Result<Json<Vec<Audit>
         return Err(Error::Forbidden);
     }
     Ok(Json(query("SELECT action,to_char(at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') at FROM audit_logs WHERE company_id=$1 ORDER BY id DESC LIMIT 100").bind(u.company_id).map(|row: sqlx_postgres::PgRow| Audit { action: row.get("action"), at: row.get("at") }).fetch_all(&a.db).await?))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PixLookup {
+    txid: crate::domain::pix::Txid,
+}
+pub async fn pix_charge(
+    State(a): State<App>,
+    h: HeaderMap,
+    body: std::result::Result<Json<PixLookup>, axum::extract::rejection::JsonRejection>,
+) -> Result<Json<crate::domain::pix::PixCharge>> {
+    let user = auth::identity(&a, &h).await?;
+    if !user
+        .roles
+        .iter()
+        .any(|r| matches!(r.as_str(), "ADMIN" | "VIEWER" | "OPERATOR"))
+    {
+        return Err(Error::Forbidden);
+    }
+    let input = body.map_err(|e| Error::Invalid(e.status()))?;
+    let charge = a
+        .bank
+        .pix_charge(user.company_id, input.0.txid)
+        .await
+        .map_err(Error::Bank)?;
+    query("INSERT INTO audit_logs(company_id, actor, action) VALUES($1, $2, $3)")
+        .bind(user.company_id)
+        .bind(user.id)
+        .bind(format!("Cobrança Pix consultada em {}", charge.source))
+        .execute(&a.db)
+        .await?;
+    Ok(Json(charge))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MockPixIntent {
+    intent_id: Uuid,
+    original_cents: String,
+}
+
+pub async fn issue_mock_pix(
+    State(a): State<App>,
+    h: HeaderMap,
+    body: std::result::Result<Json<MockPixIntent>, axum::extract::rejection::JsonRejection>,
+) -> Result<(StatusCode, Json<crate::domain::pix::PixCharge>)> {
+    let user = auth::identity(&a, &h).await?;
+    if !user
+        .roles
+        .iter()
+        .any(|r| matches!(r.as_str(), "ADMIN" | "OPERATOR"))
+    {
+        return Err(Error::Forbidden);
+    }
+    let Json(input) = body.map_err(|e| Error::Invalid(e.status()))?;
+    let amount = positive_cents(&input.original_cents)?;
+    let (charge, inserted) = crate::infrastructure::banking::mock_pix::issue(
+        &a.db,
+        user.company_id,
+        user.id,
+        input.intent_id,
+        amount,
+    )
+    .await
+    .map_err(Error::Bank)?;
+    Ok((
+        if inserted {
+            StatusCode::CREATED
+        } else {
+            StatusCode::OK
+        },
+        Json(charge),
+    ))
+}
+
+pub fn positive_cents(raw: &str) -> Result<i64> {
+    let invalid = || Error::Invalid(StatusCode::UNPROCESSABLE_ENTITY);
+    if raw.len() > 12 || raw.starts_with('0') || !raw.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(invalid());
+    }
+    raw.parse::<i64>().map_err(|_| invalid())
 }

@@ -1,4 +1,4 @@
-# Referência HTTP da Fase 1
+# Referência HTTP interna
 
 | Rota | Acesso | Resposta |
 |---|---|---|
@@ -24,3 +24,25 @@ Os POST exigem a origem configurada em APP_ORIGIN e o cabeçalho `X-PJ-Request: 
 | GET /api/extrato | Sessão da empresa. inicio e fim em AAAA-MM-DD, até 90 dias. pagina começa em zero. Retorna entries e has_more. Valores são strings inteiras de centavos. |
 
 409 indica disputa pela sincronização ou recurso indisponível em MOCK. 429 indica limitação pelo Inter, 502 inclui rejeição de contrato ou erro do banco, e 504 indica timeout. Falhas de autorização pelo Inter são distintas da autorização do usuário local.
+
+## Consulta de cobrança imediata
+
+`POST /api/pix/cobrancas/consultar` recebe JSON com um único campo `txid`. O POST interno mantém o identificador fora da URL e passa pela validação de origem. O backend consulta o recurso bancário por GET. ADMIN, OPERATOR e VIEWER podem consultar a conta da empresa da sessão. O ambiente MOCK aceita `DEMO000000000000000000000001` (ativa) e `DEMO000000000000000000000002` (concluída).
+
+A resposta traz `source`, `txid`, `status`, `revision` e `original_cents` como string de centavos. O backend registra o ambiente, o usuário e o instante de cada consulta bem-sucedida na auditoria local. Uma cobrança ausente resulta em HTTP 404. A falta de sessão resulta em 401, e um perfil sem acesso, recurso desabilitado ou vínculo de empresa divergente resulta em 403. O servidor rejeita um txid inválido antes de chamar o Inter. O painel externo informa a disponibilidade em `pix_lookup_enabled`.
+
+## Emissão de cobrança fictícia
+
+Em MOCK, `POST /api/mock/pix/cobrancas` aceita uma sessão ADMIN ou OPERATOR, a origem configurada e o cabeçalho `X-PJ-Request: 1`. O corpo contém `intent_id` (UUID da intenção) e `original_cents` (string de 1 a 12 algarismos, positiva e sem zeros à esquerda). A empresa vem da sessão. A chave de idempotência é a combinação da empresa com o txid derivado do UUID. O backend registra a cobrança e sua emissão na auditoria em uma transação PostgreSQL.
+
+| Resultado | HTTP |
+|---|---|
+| Primeira emissão | 201 com txid, origem MOCK, situação ATIVA, revisão zero e valor |
+| Repetição da intenção e do valor | 200 com a mesma cobrança, código e expiração |
+| Repetição da intenção com outro valor | 409 |
+| Valor ou UUID inválido no JSON | 422 |
+| Rota em SANDBOX ou PRODUCTION, com cabeçalhos de origem válidos | 404 |
+
+A resposta inclui `mock_code.copy_paste` e `mock_code.expires_at` (RFC 3339). O mesmo resultado pode ser consultado pelo txid em `POST /api/pix/cobrancas/consultar`. O BR Code de demonstração codifica uma URL dinâmica sob `pix.invalid`. Tem validade de 24 horas e dispensa chave Pix, certificado e acesso à rede bancária. A interface mostra o horário em Fortaleza e oculta o QR Code após expirar. O prazo do código é independente da situação de liquidação.
+
+A tela salva o UUID e o valor fictício da intenção na sessão da aba, com chave por empresa e usuário. Uma falha de rede permite retomar com o mesmo UUID. Após uma emissão confirmada, **Iniciar outra emissão** prepara um novo pedido. Guarde o txid para consultar a cobrança depois de fechar a aba.

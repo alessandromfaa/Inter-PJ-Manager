@@ -1,4 +1,10 @@
-export type Identity = { email: string; company: string; roles: string[] };
+export type Identity = {
+  id: string;
+  company_id: string;
+  email: string;
+  company: string;
+  roles: string[];
+};
 export type Entry = {
   date: string;
   description: string;
@@ -94,6 +100,7 @@ export type Reading = {
   };
 };
 export type LiveSnapshot = {
+  pix_lookup_enabled: boolean;
   source: "SANDBOX" | "PRODUCTION";
   reading: Reading | null;
   certificate_expires_at: string;

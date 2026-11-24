@@ -3,6 +3,7 @@ mod application;
 mod auth;
 mod config;
 mod domain;
+mod recebimentos;
 mod infrastructure {
     pub mod banking;
 }
@@ -137,6 +138,15 @@ async fn main() -> Result<()> {
         )
         .init();
     let secure = config::validate()?;
+    match env::args().nth(1).as_deref() {
+        Some("verificar-acesso-saldo") => {
+            return infrastructure::banking::inter::verify_balance_access().await;
+        }
+        Some("verificar-acesso-extrato") => {
+            return infrastructure::banking::inter::verify_statement_access().await;
+        }
+        _ => {}
+    }
     let mut options = PgConnectOptions::from_str(&env::var("DATABASE_URL")?)
         .context("Configuração PostgreSQL inválida")?;
     if let Ok(path) = env::var("DB_PASSWORD_FILE") {
@@ -154,7 +164,7 @@ async fn main() -> Result<()> {
         Some("bootstrap") => return provision(&db, true).await,
         Some("criar-usuario") => return provision(&db, false).await,
         Some("migrate") => return Ok(()),
-        None => (),
+        None | Some("receber-webhooks") => (),
         _ => anyhow::bail!("Comando desconhecido"),
     }
     let origin = config::var("APP_ORIGIN", "http://127.0.0.1:8080");
@@ -163,7 +173,7 @@ async fn main() -> Result<()> {
         "Produção exige origem HTTPS"
     );
     let bank: Arc<dyn BankProvider> = if config::var("INTER_ENV", "mock") == "mock" {
-        Arc::new(MockBank)
+        Arc::new(MockBank(db.clone()))
     } else {
         Arc::new(infrastructure::banking::inter::InterBank::configured(db.clone()).await?)
     };
@@ -179,6 +189,12 @@ async fn main() -> Result<()> {
         workers: Arc::new(Semaphore::new(4)),
         bank,
     };
+    if env::args().nth(1).as_deref() == Some("receber-webhooks") {
+        return recebimentos::webhook::serve(app).await;
+    }
+    if app.bank.environment() == "MOCK" {
+        tokio::spawn(recebimentos::worker::run(app.clone()));
+    }
     let router = router(app);
     let listener = tokio::net::TcpListener::bind(format!(
         "{}:{}",
@@ -192,7 +208,33 @@ async fn main() -> Result<()> {
 }
 
 fn router(app: App) -> Router {
-    Router::new()
+    let mut routes = Router::new();
+    if app.bank.sandbox_issuance() {
+        routes = routes.route(
+            "/api/sandbox/recebimentos/emitir",
+            post(recebimentos::api::sandbox_issue),
+        );
+    }
+    if app.bank.environment() == "MOCK" {
+        routes = routes
+            .route("/api/mock/pix/cobrancas", post(api::issue_mock_pix))
+            .route(
+                "/api/mock/recebimentos/pix",
+                post(recebimentos::api::simulate_pix),
+            )
+            .route("/api/mock/cobrancas-v3", post(recebimentos::api::billing))
+            .route(
+                "/api/mock/cobrancas-v3/atualizar",
+                post(recebimentos::api::change_billing),
+            );
+    }
+    routes
+        .route("/api/recebimentos", get(recebimentos::api::list))
+        .route("/api/clientes", post(recebimentos::api::customer))
+        .route(
+            "/api/recebimentos/reprocessar",
+            post(recebimentos::api::retry),
+        )
         .route("/health", get(|| async { "ok" }))
         .route("/ready", get(api::ready))
         .route("/api/login", post(auth::login))
@@ -200,6 +242,7 @@ fn router(app: App) -> Router {
         .route("/api/session", get(api::session))
         .route("/api/dashboard", get(api::dashboard))
         .route("/api/ambiente", get(api::environment))
+        .route("/api/pix/cobrancas/consultar", post(api::pix_charge))
         .route("/api/extrato", get(api::statement))
         .route("/api/sincronizar", post(api::sync))
         .route("/api/auditoria", get(api::audit))

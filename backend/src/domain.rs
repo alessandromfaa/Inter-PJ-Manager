@@ -1,3 +1,4 @@
+pub mod pix;
 use serde::Serialize;
 #[derive(Serialize)]
 pub struct Entry {
@@ -35,6 +36,7 @@ pub enum Dashboard {
 
 #[derive(Serialize)]
 pub struct LiveDashboard {
+    pub pix_lookup_enabled: bool,
     pub source: &'static str,
     #[serde(with = "time::serde::rfc3339")]
     pub certificate_expires_at: time::OffsetDateTime,

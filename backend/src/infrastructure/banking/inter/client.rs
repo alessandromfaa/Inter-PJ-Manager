@@ -21,9 +21,37 @@ pub struct ClientInter {
     account: String,
     client_id: String,
     secret: Zeroizing<String>,
-    token: Mutex<Option<Token>>,
+    banking_token: Mutex<Option<Token>>,
+    pix_token: Mutex<Option<Token>>,
+    received_token: Mutex<Option<Token>>,
+    billing_token: Mutex<Option<Token>>,
+    issue_pix_token: Mutex<Option<Token>>,
+    issue_bill_token: Mutex<Option<Token>>,
+    billing: Pacer,
+    pix: Pacer,
     oauth: Pacer,
     bank: Pacer,
+}
+#[derive(Clone, Copy)]
+enum ReadApi {
+    Banking,
+    Pix,
+    Received,
+    Billing,
+    IssuePix,
+    IssueBill,
+}
+impl ReadApi {
+    fn scope(self) -> &'static str {
+        match self {
+            Self::Banking => "extrato.read",
+            Self::Pix => "cob.read",
+            Self::Received => "pix.read",
+            Self::Billing => "boleto-cobranca.read",
+            Self::IssuePix => "cob.write",
+            Self::IssueBill => "boleto-cobranca.write",
+        }
+    }
 }
 struct Pacer {
     next: Mutex<Instant>,
@@ -71,7 +99,15 @@ impl ClientInter {
             account,
             client_id,
             secret,
-            token: Mutex::new(None),
+            banking_token: Mutex::new(None),
+            pix_token: Mutex::new(None),
+            received_token: Mutex::new(None),
+            billing_token: Mutex::new(None),
+            issue_pix_token: Mutex::new(None),
+            issue_bill_token: Mutex::new(None),
+            billing: Pacer::new(Duration::from_secs(6)),
+            // A cadência conservadora também respeita as 10 consultas/min do sandbox.
+            pix: Pacer::new(Duration::from_secs(6)),
             oauth: Pacer::new(Duration::from_secs(12)),
             bank: Pacer::new(Duration::from_secs(6)),
         }
@@ -80,6 +116,8 @@ impl ClientInter {
     pub(super) fn fast_mock(mut self) -> Self {
         self.oauth = Pacer::new(Duration::ZERO);
         self.bank = Pacer::new(Duration::ZERO);
+        self.pix = Pacer::new(Duration::ZERO);
+        self.billing = Pacer::new(Duration::ZERO);
         self
     }
     async fn request<T: DeserializeOwned>(
@@ -139,8 +177,18 @@ impl ClientInter {
         }
         Err(BankError::Limit)
     }
-    async fn bearer(&self) -> Result<Zeroizing<String>, BankError> {
-        let mut cache = self.token.lock().await;
+    fn token(&self, api: ReadApi) -> &Mutex<Option<Token>> {
+        match api {
+            ReadApi::Banking => &self.banking_token,
+            ReadApi::Pix => &self.pix_token,
+            ReadApi::Received => &self.received_token,
+            ReadApi::Billing => &self.billing_token,
+            ReadApi::IssuePix => &self.issue_pix_token,
+            ReadApi::IssueBill => &self.issue_bill_token,
+        }
+    }
+    async fn bearer(&self, api: ReadApi) -> Result<Zeroizing<String>, BankError> {
+        let mut cache = self.token(api).lock().await;
         if let Some(token) = cache.as_ref().filter(|t| t.renew_at > Instant::now()) {
             return Ok(token.raw.clone());
         }
@@ -150,7 +198,7 @@ impl ClientInter {
                     .post(format!("{}/oauth/v2/token", self.base))
                     .form(&[
                         ("grant_type", "client_credentials"),
-                        ("scope", "extrato.read"),
+                        ("scope", api.scope()),
                         ("client_id", self.client_id.as_str()),
                         ("client_secret", self.secret.as_str()),
                     ])
@@ -162,7 +210,7 @@ impl ClientInter {
             || grant
                 .scope
                 .as_deref()
-                .is_some_and(|s| s.split_whitespace().collect::<Vec<_>>() != ["extrato.read"])
+                .is_some_and(|s| s.split_whitespace().collect::<Vec<_>>() != [api.scope()])
         {
             return Err(BankError::Contract);
         }
@@ -179,13 +227,19 @@ impl ClientInter {
     }
     async fn read<T: DeserializeOwned>(
         &self,
+        api: ReadApi,
         path: &str,
         params: &[(&str, String)],
     ) -> Result<T, BankError> {
         for attempt in 0..2 {
-            let token = self.bearer().await?;
+            let token = self.bearer(api).await?;
+            let pacer = match api {
+                ReadApi::Banking => &self.bank,
+                ReadApi::Pix | ReadApi::Received | ReadApi::IssuePix => &self.pix,
+                ReadApi::Billing | ReadApi::IssueBill => &self.billing,
+            };
             let result = self
-                .request(&self.bank, || {
+                .request(pacer, || {
                     self.http
                         .get(format!("{}{path}", self.base))
                         .bearer_auth(token.as_str())
@@ -194,7 +248,7 @@ impl ClientInter {
                 })
                 .await;
             if matches!(result, Err(BankError::Http(401))) {
-                let mut cache = self.token.lock().await;
+                let mut cache = self.token(api).lock().await;
                 if cache.as_ref().is_some_and(|t| t.raw == token) {
                     *cache = None
                 }
@@ -202,12 +256,117 @@ impl ClientInter {
                     continue;
                 }
             }
+            if matches!(api, ReadApi::Pix) && matches!(result, Err(BankError::Http(404))) {
+                return Err(BankError::PixNotFound);
+            }
             return result.map(|(value, _)| value);
         }
         Err(BankError::Http(401))
     }
+    pub(super) async fn submit_collection(
+        &self,
+        pix_txid: Option<&str>,
+        body: &serde_json::Value,
+    ) -> Result<String, BankError> {
+        let (api, pacer, request, status) = if let Some(txid) = pix_txid {
+            (
+                ReadApi::IssuePix,
+                &self.pix,
+                self.http.put(format!("{}/pix/v2/cob/{txid}", self.base)),
+                StatusCode::CREATED,
+            )
+        } else {
+            (
+                ReadApi::IssueBill,
+                &self.billing,
+                self.http
+                    .post(format!("{}/cobranca/v3/cobrancas", self.base)),
+                StatusCode::OK,
+            )
+        };
+        let token = self.bearer(api).await?;
+        pacer.wait().await;
+        let mut resp = request
+            .bearer_auth(token.as_str())
+            .header("x-conta-corrente", &self.account)
+            .header("content-type", "application/json")
+            .body(serde_json::to_vec(body).map_err(|_| BankError::Contract)?)
+            .send()
+            .await
+            .map_err(BankError::transport)?;
+        if resp.status() != status {
+            return Err(BankError::Http(resp.status().as_u16()));
+        }
+        let mut bytes = Zeroizing::new(Vec::new());
+        while let Some(chunk) = resp.chunk().await.map_err(BankError::transport)? {
+            if bytes.len() + chunk.len() > 1048576 {
+                return Err(BankError::Contract);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        if let Some(txid) = pix_txid {
+            let charge: super::contract::PixResponse =
+                serde_json::from_slice(&bytes).map_err(|_| BankError::Contract)?;
+            let expected = txid
+                .to_owned()
+                .try_into()
+                .map_err(|_| BankError::Contract)?;
+            let c = charge.into_charge(&expected, "SANDBOX")?;
+            let requested = body["valor"]["original"]
+                .as_str()
+                .ok_or(BankError::Contract)?;
+            if c.original_cents != super::contract::cents(requested)?.to_string() {
+                return Err(BankError::Contract);
+            }
+            Ok(txid.into())
+        } else {
+            #[derive(Deserialize)]
+            #[serde(rename_all = "camelCase")]
+            struct Accepted {
+                codigo_solicitacao: uuid::Uuid,
+            }
+            let result: Accepted =
+                serde_json::from_slice(&bytes).map_err(|_| BankError::Contract)?;
+            Ok(result.codigo_solicitacao.to_string())
+        }
+    }
+    pub async fn confirm_receipt(
+        &self,
+        family: &str,
+        reference: &str,
+    ) -> Result<crate::recebimentos::Confirmation, BankError> {
+        match family {
+            "PIX" if crate::recebimentos::valid_e2e(reference) => {
+                let p: super::receipts::PixReceipt = self
+                    .read(ReadApi::Received, &format!("/pix/v2/pix/{reference}"), &[])
+                    .await?;
+                p.confirm(reference)
+            }
+            "V3" => {
+                let id = uuid::Uuid::parse_str(reference).map_err(|_| BankError::Contract)?;
+                let b: super::receipts::BillingResponse = self
+                    .read(
+                        ReadApi::Billing,
+                        &format!("/cobranca/v3/cobrancas/{id}"),
+                        &[],
+                    )
+                    .await?;
+                b.confirm(id)
+            }
+            _ => Err(BankError::Contract),
+        }
+    }
+    pub async fn pix_charge(
+        &self,
+        txid: crate::domain::pix::Txid,
+        mode: &'static str,
+    ) -> Result<crate::domain::pix::PixCharge, BankError> {
+        let path = format!("/pix/v2/cob/{}", txid.as_str());
+        let response: super::contract::PixResponse = self.read(ReadApi::Pix, &path, &[]).await?;
+        response.into_charge(&txid, mode)
+    }
     pub async fn balance(&self) -> Result<Balance, BankError> {
-        self.read::<BalanceResponse>("/banking/v2/saldo", &[])
+        self.read::<BalanceResponse>(ReadApi::Banking, "/banking/v2/saldo", &[])
             .await?
             .convert()
     }
@@ -221,6 +380,7 @@ impl ClientInter {
             for index in 0..100 {
                 let page: Page = self
                     .read(
+                        ReadApi::Banking,
                         "/banking/v2/extrato/completo",
                         &[
                             ("dataInicio", from.to_string()),
@@ -242,6 +402,13 @@ impl ClientInter {
                 if *expected.get_or_insert(page.total_elementos) != page.total_elementos
                     || page.numero_de_elementos != page.transacoes.len()
                 {
+                    return Err(BankError::Contract);
+                }
+                // O Inter devolve zero páginas e ultimaPagina=false em um período vazio.
+                if index == 0 && page.total_paginas == Some(0) {
+                    if page.total_elementos == 0 && page.transacoes.is_empty() {
+                        break;
+                    }
                     return Err(BankError::Contract);
                 }
                 seen += page.numero_de_elementos;

@@ -10,11 +10,15 @@ import {
 import {
   LayoutDashboard,
   ListFilter,
+  ScanLine,
+  Receipt,
   ShieldCheck,
   LogOut,
   SunMoon,
   CalendarDays,
 } from "lucide-react";
+import { Recebimentos } from "./pages/recebimentos";
+import { Pix } from "./pages/pix";
 import { Banking } from "./pages/banking";
 import { Login } from "./pages/login";
 const Overview = lazy(() =>
@@ -91,6 +95,14 @@ function App() {
   )
     return <Login done={reset} mode={mode.data} />;
   if (!session.data) return <Failure retry={() => void session.refetch()} />;
+  const canLookupPix =
+    session.data.roles.some((r) =>
+      ["ADMIN", "VIEWER", "OPERATOR"].includes(r),
+    ) &&
+    (mode.data === "MOCK" ||
+      (data.data &&
+        data.data.source !== "MOCK" &&
+        data.data.pix_lookup_enabled));
   return (
     <div className={"shell " + (dark ? "dark" : "")}>
       <aside>
@@ -100,6 +112,14 @@ function App() {
           {[
             { name: "Visão geral", icon: LayoutDashboard },
             { name: "Extrato", icon: ListFilter },
+            ...(canLookupPix
+              ? [{ name: "Cobranças Pix", icon: ScanLine }]
+              : []),
+            ...(session.data.roles.some((r) =>
+              ["ADMIN", "OPERATOR", "VIEWER", "AUDITOR"].includes(r),
+            )
+              ? [{ name: "Recebimentos", icon: Receipt }]
+              : []),
             ...(canAudit ? [{ name: "Auditoria", icon: ShieldCheck }] : []),
           ].map(({ name, icon: Icon }) => (
             <button
@@ -149,13 +169,29 @@ function App() {
               <span className="eyebrow">PAINEL FINANCEIRO</span>
               <h1>{view}</h1>
             </div>
-            {view !== "Auditoria" && mode.data === "MOCK" && (
-              <span className="period">
-                <CalendarDays size={16} /> Novembro de 2026
-              </span>
-            )}
+            {(view === "Visão geral" || view === "Extrato") &&
+              mode.data === "MOCK" && (
+                <span className="period">
+                  <CalendarDays size={16} /> Novembro de 2026
+                </span>
+              )}
           </div>
-          {view === "Auditoria" ? (
+          {view === "Recebimentos" ? (
+            <Recebimentos
+              key={session.data.id + mode.data}
+              mode={mode.data}
+              user={session.data}
+            />
+          ) : view === "Cobranças Pix" && canLookupPix ? (
+            <Pix
+              key={session.data.id + mode.data}
+              mode={mode.data}
+              scope={session.data.company_id + ":" + session.data.id}
+              canIssue={session.data.roles.some(
+                (r) => r === "ADMIN" || r === "OPERATOR",
+              )}
+            />
+          ) : view === "Auditoria" ? (
             <section className="panel">
               <h2>Atividade da empresa</h2>
               {audit.isPending ? (

@@ -83,7 +83,7 @@ async fn sessoes_permissoes_e_segregacao() -> Result<()> {
         origin: origin.into(),
         dummy: Arc::new(hash(&pw)?),
         workers: Arc::new(Semaphore::new(4)),
-        bank: Arc::new(MockBank),
+        bank: Arc::new(MockBank(pool.clone())),
     });
     let creds = json!({"email":email,"password":pw});
     assert_eq!(
@@ -123,6 +123,49 @@ async fn sessoes_permissoes_e_segregacao() -> Result<()> {
             .status(),
         StatusCode::FORBIDDEN
     );
+    exercitar_emissao_mock(&api, &pool, cookie, origin, tenant, user, other).await?;
+    let pix = "/api/pix/cobrancas/consultar";
+    let demo = json!({"txid":"DEMO000000000000000000000001"});
+    for (cred, payload, source, expected) in [
+        ("", demo.clone(), origin, StatusCode::UNAUTHORIZED),
+        (
+            cookie,
+            demo.clone(),
+            "https://outra.invalid",
+            StatusCode::FORBIDDEN,
+        ),
+        (
+            cookie,
+            json!({"txid":"curto"}),
+            origin,
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+        (cookie, demo.clone(), origin, StatusCode::OK),
+    ] {
+        assert_eq!(
+            chamada(&api, pix, cred, Some(payload), source)
+                .await
+                .status(),
+            expected
+        );
+    }
+    let audited: i64 = query_scalar("SELECT count(*) FROM audit_logs WHERE company_id=$1 AND actor=$2 AND action='Cobrança Pix consultada em MOCK'")
+        .bind(tenant).bind(user).fetch_one(&pool).await?;
+    assert_eq!(audited, 1);
+    query("UPDATE user_roles SET role='AUDITOR' WHERE user_id=$1 AND role='VIEWER'")
+        .bind(user)
+        .execute(&pool)
+        .await?;
+    assert_eq!(
+        chamada(&api, pix, cookie, Some(demo), origin)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    query("UPDATE user_roles SET role='VIEWER' WHERE user_id=$1 AND role='AUDITOR'")
+        .bind(user)
+        .execute(&pool)
+        .await?;
     query("INSERT INTO user_roles VALUES ($1,'AUDITOR')")
         .bind(user)
         .execute(&pool)
@@ -187,5 +230,93 @@ async fn sessoes_permissoes_e_segregacao() -> Result<()> {
             .status(),
         StatusCode::TOO_MANY_REQUESTS
     );
+    Ok(())
+}
+
+async fn exercitar_emissao_mock(
+    api: &Router,
+    pool: &PgPool,
+    cookie: &str,
+    origin: &str,
+    company: Uuid,
+    actor: Uuid,
+    other: Uuid,
+) -> Result<()> {
+    const ROUTE: &str = "/api/mock/pix/cobrancas";
+    let id = Uuid::new_v4();
+    let request = |cents: &str| json!({"intent_id":id,"original_cents":cents});
+    assert_eq!(
+        chamada(api, ROUTE, cookie, Some(request("4250")), origin)
+            .await
+            .status(),
+        StatusCode::FORBIDDEN
+    );
+    query("INSERT INTO user_roles VALUES ($1, 'OPERATOR')")
+        .bind(actor)
+        .execute(pool)
+        .await?;
+    assert_eq!(
+        chamada(
+            api,
+            ROUTE,
+            cookie,
+            Some(request("4250")),
+            "https://outra.invalid"
+        )
+        .await
+        .status(),
+        StatusCode::FORBIDDEN
+    );
+    for invalid in ["0", "-10", "4.25", "9999999999999", "01", ""] {
+        assert_eq!(
+            chamada(api, ROUTE, cookie, Some(request(invalid)), origin)
+                .await
+                .status(),
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
+    let send = || chamada(api, ROUTE, cookie, Some(request("4250")), origin);
+    let (first, second) = tokio::join!(send(), send());
+    let mut statuses = [first.status(), second.status()];
+    statuses.sort();
+    assert_eq!(statuses, [StatusCode::OK, StatusCode::CREATED]);
+    let body = to_bytes(first.into_body(), 8192).await?;
+    assert_eq!(body, to_bytes(second.into_body(), 8192).await?);
+    let charge: Value = serde_json::from_slice(&body)?;
+    let txid = domain::pix::Txid::for_mock_intent(id);
+    assert_eq!(charge["txid"], txid.as_str());
+    assert_eq!(charge["source"], "MOCK");
+    assert_eq!(charge["status"], "ATIVA");
+    assert_eq!(charge["original_cents"], "4250");
+    assert!(
+        charge["mock_code"]["copy_paste"]
+            .as_str()
+            .unwrap()
+            .contains("pix.invalid/")
+    );
+    assert_eq!(
+        chamada(api, ROUTE, cookie, Some(request("4251")), origin)
+            .await
+            .status(),
+        StatusCode::CONFLICT
+    );
+    let read = infrastructure::banking::mock_pix::find(
+        pool,
+        company,
+        domain::pix::Txid::for_mock_intent(id),
+    )
+    .await?;
+    assert_eq!(serde_json::to_value(read)?, charge);
+    assert!(matches!(
+        infrastructure::banking::mock_pix::find(pool, other, txid).await,
+        Err(infrastructure::banking::inter::BankError::PixNotFound)
+    ));
+    let n: i64 = query_scalar("SELECT count(*) FROM audit_logs WHERE company_id=$1 AND actor=$2 AND action='Cobrança Pix emitida em MOCK'")
+        .bind(company).bind(actor).fetch_one(pool).await?;
+    assert_eq!(n, 1);
+    query("DELETE FROM user_roles WHERE user_id=$1 AND role='OPERATOR'")
+        .bind(actor)
+        .execute(pool)
+        .await?;
     Ok(())
 }

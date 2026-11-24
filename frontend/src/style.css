@@ -432,6 +432,7 @@ th:last-child {
   nav {
     grid-column: 1/-1;
     display: flex;
+    flex-wrap: wrap;
   }
   nav button {
     margin: 0;
@@ -487,4 +488,34 @@ th:last-child {
   .shell aside {
     min-height: auto;
   }
+}
+
+.pix-id {
+  overflow-wrap: anywhere;
+}
+
+.mock-code {
+  display: grid;
+  justify-items: start;
+  gap: 0.8rem;
+  margin: 1rem 0;
+}
+.mock-code canvas {
+  max-width: 100%;
+  height: auto !important;
+}
+.mock-code label {
+  width: 100%;
+}
+.mock-code textarea {
+  display: block;
+  width: 100%;
+  margin-top: 0.35rem;
+  padding: 0.65rem;
+  font: inherit;
+  overflow-wrap: anywhere;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 7px;
 }

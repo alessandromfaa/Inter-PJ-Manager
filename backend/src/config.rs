@@ -23,12 +23,26 @@ pub fn validate() -> Result<bool> {
             "Leitura de produção exige APP_ENV=production"
         );
     }
-    for name in ["ENABLE_BANK_WRITES", "ENABLE_REAL_PAYMENTS"] {
+    let sandbox_writes = var("ENABLE_SANDBOX_COLLECTIONS", "false");
+    ensure!(
+        matches!(sandbox_writes.as_str(), "true" | "false"),
+        "Opção de homologação inválida"
+    );
+    if sandbox_writes == "true" {
         ensure!(
-            var(name, "false") == "false",
+            mode == "sandbox" && var("ENABLE_BANK_WRITES", "false") == "true",
+            "Emissão de homologação exige sandbox e escrita explícita"
+        );
+    } else {
+        ensure!(
+            var("ENABLE_BANK_WRITES", "false") == "false",
             "Escrita bancária indisponível"
         );
     }
+    ensure!(
+        var("ENABLE_REAL_PAYMENTS", "false") == "false",
+        "Escrita bancária indisponível"
+    );
     match var("APP_ENV", "development").as_str() {
         "development" => Ok(false),
         "production" => Ok(true),

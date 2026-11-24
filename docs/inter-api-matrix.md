@@ -1,6 +1,6 @@
 # Matriz das APIs Inter Empresas
 
-Consulta documental em 23/11/2026. OAuth, saldo e extrato completo possuem adaptador implementado e testes locais. Homologação oficial pendente. As demais operações são inventário para fases futuras. As colunas P e S indicam limites publicados em chamadas por minuto para produção e sandbox. O traço indica informação a confirmar no contrato específico.
+Consulta documental em 23/11/2026. OAuth, saldo e extrato completo possuem adaptador implementado e testes locais. Em produção, o diagnóstico obteve token, saldo e extrato completo para um intervalo vazio. O caso observado devolveu zero páginas e registros com `ultimaPagina=false`. Em 24/11/2026, uma segunda consulta de extrato em produção validou uma página com lançamentos. A navegação entre várias páginas foi testada localmente. Homologação em sandbox pendente. As demais operações são inventário para fases futuras. As colunas P e S indicam limites publicados em chamadas por minuto para produção e sandbox. O traço indica informação a confirmar no contrato específico.
 
 | Família | Entrega prevista |
 |---|---|
@@ -45,7 +45,11 @@ Consulta documental em 23/11/2026. OAuth, saldo e extrato completo possuem adapt
 
 ## Pix recebimentos
 
+Revisão de 24/11/2026 para a consulta individual de cobrança imediata. O OpenAPI da API Pix V2 confirma `GET /cob/{txid}` sob a base `/pix/v2` nos dois ambientes, token OAuth/mTLS com `cob.read` e seleção da conta por `x-conta-corrente`. O identificador aceita 26 a 35 caracteres alfanuméricos ASCII. A consulta retorna um objeto `CobCompleta`, sem paginação. O recorte inicial utiliza identificador, revisão, situação e valor original. O valor nominal e o estado da cobrança têm finalidade de consulta. A conciliação de recebimentos requer verificar os Pix efetivamente recebidos. Cotas e códigos HTTP constam na tabela abaixo. Adaptador e painel implementados, com cache por escopo e cadência conservadora de até 10 consultas por minuto por instância. Testes com servidor local cobrem divergência de txid, escopo, valor, estado e 404. Validação externa específica desta operação pendente.
+
 [Especificação oficial](https://developers.inter.co/redocusaurus/swagger-api-pix-yaml.yaml)
+
+Para a emissão imediata, o contrato revisado em 24/11/2026 especifica PUT com txid escolhido pelo recebedor, OAuth/mTLS com `cob.write`, corpo `CobSolicitada` (calendário, valor e chave) e retorno 201 com `CobGerada`. Trata-se de uma operação individual, sem paginação. O Inter documenta servidores de produção e sandbox. A aplicação implementa a emissão **somente em MOCK**, com persistência local da intenção e BR Code dinâmico fictício apontando para um domínio reservado `.invalid`. A implementação externa de emissão e a validação do código fornecido pelo Inter estão pendentes. [Contrato Pix V2](https://developers.inter.co/redocusaurus/swagger-api-pix-yaml.yaml) · [Padrão de iniciação do Banco Central](https://www.bcb.gov.br/content/estabilidadefinanceira/pix/Regulamento_Pix/II_ManualdePadroesparaIniciacaodoPix.pdf)
 
 | Operação e versão | Escopo | P | S | Respostas HTTP |
 |---|---|---:|---:|---|
@@ -162,3 +166,9 @@ A Cobrança V3 prevê acompanhamento por `codigoSolicitacao`. Aceitação para p
 Verificar escopos e requisito de seis meses de atividade do CNPJ para Pix Automático. A habilitação depende da análise do banco. Crédito imobiliário possui contrato próprio para parceiros. CNAB utiliza intercâmbio de arquivos. [Catálogo](https://developers.inter.co/docs/introducao/nossas-apis).
 
 Para callbacks, verificar o mecanismo de autenticação de cada família e validar a associação da conta antes do processamento. [Webhooks](https://developers.inter.co/docs/webhooks/o-que-e-webhooks).
+
+## Contratos de recebimentos e autenticação dos callbacks
+
+Na revisão de 24/11/2026, a consulta individual de Pix recebido usa `GET /pix/v2/pix/{e2eId}` e `pix.read`. O identificador tem 32 caracteres alfanuméricos. A consulta individual de Cobrança V3 usa `GET /cobranca/v3/cobrancas/{codigoSolicitacao}` e `boleto-cobranca.read`. Ambas selecionam a conta por `x-conta-corrente`, dispensam paginação e usam OAuth/mTLS. Os limites e erros estão nas tabelas por família. A emissão V3 retorna HTTP 200 com um UUID para acompanhamento. O campo `situacao` distingue `EM_PROCESSAMENTO`, `A_RECEBER`, `RECEBIDO` e `MARCADO_RECEBIDO`. [Cobrança V3](https://developers.inter.co/redocusaurus/swagger-cobranca-bolepix-yaml.yaml) · [Pix V2](https://developers.inter.co/redocusaurus/swagger-api-pix-yaml.yaml)
+
+O Inter orienta obter a CA específica dos callbacks em **Minhas integrações → Certificado Webhook**. O receptor HTTPS deve validar o certificado de cliente com essa CA, exigir TLS 1.2 ou superior e conferir a conta. O callback Pix traz a lista `pix`, e o da Cobrança V3 traz um array com código, situação e instante. Os dados de liquidação devem ser consultados na fonte antes de qualquer efeito. [Configuração oficial](https://developers.inter.co/docs/webhooks/como-config-webhooks/index.html) · [Callback](https://developers.inter.co/docs/webhooks/callback-webhook/index.html)

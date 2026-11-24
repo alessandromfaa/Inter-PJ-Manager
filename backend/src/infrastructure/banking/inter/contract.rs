@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Number;
 use time::Date;
 
-fn cents(raw: &str) -> Result<i64, BankError> {
+pub(super) fn cents(raw: &str) -> Result<i64, BankError> {
     // from_str_exact impede arredondamento na leitura do JSON.
     let value = Decimal::from_str_exact(raw).map_err(|_| BankError::Contract)?;
     let scaled = value
@@ -72,6 +72,7 @@ impl BalanceResponse {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Page {
+    pub total_paginas: Option<usize>,
     pub total_elementos: usize,
     pub ultima_pagina: bool,
     pub numero_de_elementos: usize,
@@ -102,6 +103,48 @@ impl Transaction {
                 .ok_or(BankError::Contract),
             _ => Err(BankError::Contract),
         }
+    }
+}
+
+#[derive(Deserialize)]
+pub(super) struct PixResponse {
+    pub txid: crate::domain::pix::Txid,
+    pub status: crate::domain::pix::PixStatus,
+    pub revisao: u32,
+    valor: PixValue,
+}
+
+#[derive(Deserialize)]
+struct PixValue {
+    original: String,
+}
+
+impl PixResponse {
+    pub fn into_charge(
+        self,
+        expected: &crate::domain::pix::Txid,
+        source: &'static str,
+    ) -> Result<crate::domain::pix::PixCharge, BankError> {
+        let original = &self.valor.original;
+        let (whole, fraction) = original.split_once('.').ok_or(BankError::Contract)?;
+        if self.txid != *expected
+            || !(1..=10).contains(&whole.len())
+            || fraction.len() != 2
+            || !whole
+                .bytes()
+                .chain(fraction.bytes())
+                .all(|b| b.is_ascii_digit())
+        {
+            return Err(BankError::Contract);
+        }
+        Ok(crate::domain::pix::PixCharge {
+            source,
+            txid: self.txid,
+            status: self.status,
+            revision: self.revisao,
+            original_cents: cents(original)?.to_string(),
+            mock_code: None,
+        })
     }
 }
 

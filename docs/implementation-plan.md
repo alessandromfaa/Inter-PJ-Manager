@@ -11,6 +11,14 @@
 
 O esquema inicial reserva as entidades financeiras. Formulários, regras, workers e endpoints correspondentes entram com os testes da respectiva fase. Cada módulo precisa registrar o contrato vigente, escopos, limites, paginação, erros e suporte no sandbox antes da ativação.
 
-## Prioridade imediata da Fase 2
+## Transição da leitura bancária para recebimentos
 
-Implementar leitura de saldo com conversão decimal exata e fixtures contratuais. Em seguida, adicionar extrato paginado com checkpoints persistentes por conta e transações de importação idempotentes. Webhooks e operações de escrita continuam nas fases subsequentes.
+O aceite da Fase 2 reúne consultas pontuais de saldo e extrato vazio e com lançamentos na conta de produção autorizada. A sincronização com PostgreSQL, a paginação, a concorrência, a reimportação e o rollback foram exercitados com dados sintéticos. O sandbox oficial continua pendente de acesso. A aplicação permite prosseguir com a Fase 3 em MOCK.
+
+| Marco da Fase 3 | Situação e evidência esperada |
+|---|---|
+| Consulta de cobrança imediata | Implementada por txid no painel. O adaptador valida identificador, situação, revisão, valor e escopo OAuth. A consulta externa depende de habilitação explícita e permissão na conta. |
+| Emissão Pix e QR Code | Entregue em MOCK. PostgreSQL preserva txid, valor, código e expiração no reenvio. O teste de navegador perde a primeira resposta e compara o texto decodificado do QR ao Pix Copia e Cola após retomar. Emissão pelo Inter continua pendente. |
+| Recebimento Pix em MOCK | Próximo incremento. Registrar recebimento fictício, relacionar txid e endToEndId e provar que reprocessar um evento produz uma única liquidação. |
+| Clientes e Cobrança V3 | Vincular pagador à empresa e acompanhar a solicitação por codigoSolicitacao até o estado confirmado. |
+| Webhooks e conciliação | Validar a origem conforme a família, persistir e deduplicar eventos, consultar recebimentos e confrontar identificadores e valores. |

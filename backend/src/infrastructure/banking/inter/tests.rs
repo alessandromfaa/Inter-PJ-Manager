@@ -25,16 +25,29 @@ async fn token(
     State(state): State<Arc<MockState>>,
     Form(fields): Form<HashMap<String, String>>,
 ) -> Response {
+    let scope = fields.get("scope").map(String::as_str);
     if fields.len() != 4
         || fields.get("grant_type").map(String::as_str) != Some("client_credentials")
-        || fields.get("scope").map(String::as_str) != Some("extrato.read")
+        || !matches!(scope, Some("extrato.read" | "cob.read"))
         || fields.get("client_id").map(String::as_str) != Some("cliente-teste")
         || fields.get("client_secret").map(String::as_str) != Some("segredo-sintetico")
     {
         return StatusCode::BAD_REQUEST.into_response();
     }
     let n = state.grants.fetch_add(1, SeqCst) + 1;
-    Json(json!({"access_token":format!("sintetico-{n}"),"scope":"extrato.read","token_type":"Bearer","expires_in":if state.scenario.load(SeqCst)==1{1}else{3600}})).into_response()
+    let (prefix, granted) = if scope == Some("cob.read") {
+        (
+            "cobranca",
+            if state.scenario.load(SeqCst) == 13 {
+                "extrato.read"
+            } else {
+                "cob.read"
+            },
+        )
+    } else {
+        ("sintetico", "extrato.read")
+    };
+    Json(json!({"access_token":format!("{prefix}-{n}"),"scope":granted,"token_type":"Bearer","expires_in":if state.scenario.load(SeqCst)==1{1}else{3600}})).into_response()
 }
 fn authorized(h: &HeaderMap) -> bool {
     h.get("authorization")
@@ -73,6 +86,14 @@ async fn statement(
         return StatusCode::BAD_REQUEST.into_response();
     }
     let page = &params["pagina"];
+    let scenario = state.scenario.load(SeqCst);
+    if matches!(scenario, 8 | 9) {
+        return Json(
+            json!({"totalPaginas":0,"totalElementos":if scenario==8 {0} else {1},
+            "numeroDeElementos":0,"ultimaPagina":false,"transacoes":[]}),
+        )
+        .into_response();
+    }
     let last = page == "1";
     if last && state.scenario.load(SeqCst) == 6 {
         return StatusCode::BAD_GATEWAY.into_response();
@@ -85,6 +106,30 @@ async fn statement(
     Json(json!({"totalElementos":2,"numeroDeElementos":1,"ultimaPagina":last,"transacoes":[{
  "idTransacao":id,"dataTransacao":params["dataFim"],"tipoTransacao":"PIX","tipoOperacao":if last{"D"}else{"C"},"valor":"145.38"}]})).into_response()
 }
+const PIX_ID: &str = "TESTE00000000000000000000001";
+async fn pix(
+    State(state): State<Arc<MockState>>,
+    axum::extract::Path(txid): axum::extract::Path<String>,
+    h: HeaderMap,
+) -> Response {
+    if h.get("x-conta-corrente").is_none_or(|v| v != "123")
+        || !h
+            .get("authorization")
+            .is_some_and(|v| v.as_bytes().starts_with(b"Bearer cobranca-"))
+    {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let scenario = state.scenario.load(SeqCst);
+    if txid != PIX_ID || scenario == 10 {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    Json(json!({
+        "txid": if scenario == 11 { "TESTE00000000000000000000002" } else { PIX_ID },
+        "status": if scenario == 14 { "DESCONHECIDA" } else { "CONCLUIDA" },
+        "revisao":1, "valor":{"original": if scenario == 12 { "0.001" } else { "123.45" }}
+    }))
+    .into_response()
+}
 async fn server(scenario: usize) -> (ClientInter, Arc<MockState>) {
     let state = Arc::new(MockState::default());
     state.scenario.store(scenario, SeqCst);
@@ -93,6 +138,7 @@ async fn server(scenario: usize) -> (ClientInter, Arc<MockState>) {
     let app = Router::new()
         .route("/oauth/v2/token", post(token))
         .route("/banking/v2/saldo", get(balance))
+        .route("/pix/v2/cob/{txid}", get(pix))
         .route("/banking/v2/extrato/completo", get(statement))
         .with_state(state.clone());
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -160,6 +206,49 @@ async fn exige_paginas_completas_e_ids_unicos() {
         Err(BankError::Contract)
     ));
 }
+#[tokio::test]
+async fn aceita_zero_paginas_somente_com_extrato_vazio() {
+    let day = today();
+    let (client, state) = server(8).await;
+    assert!(client.statement(day, day).await.unwrap().is_empty());
+    state.scenario.store(9, SeqCst);
+    assert!(matches!(
+        client.statement(day, day).await,
+        Err(BankError::Contract)
+    ));
+}
+#[tokio::test]
+async fn pix_consulta_com_token_especifico_e_cache_isolado() {
+    let (client, state) = server(0).await;
+    let charge = || client.pix_charge(PIX_ID.to_owned().try_into().unwrap(), "SANDBOX");
+    let (balance, first, second) = tokio::join!(client.balance(), charge(), charge());
+    assert!(balance.is_ok());
+    let data = first.unwrap();
+    assert_eq!(data.original_cents, "12345");
+    assert_eq!(data.txid.as_str(), PIX_ID);
+    assert!(matches!(
+        data.status,
+        crate::domain::pix::PixStatus::Concluida
+    ));
+    assert!(second.is_ok());
+    assert_eq!(state.grants.load(SeqCst), 2);
+    for scenario in [10, 11, 12, 14] {
+        state.scenario.store(scenario, SeqCst);
+        let result = charge().await;
+        if scenario == 10 {
+            assert!(matches!(result, Err(BankError::PixNotFound)));
+        } else {
+            assert!(matches!(result, Err(BankError::Contract)));
+        }
+    }
+    let (client, _) = server(13).await;
+    assert!(matches!(
+        client
+            .pix_charge(PIX_ID.to_owned().try_into().unwrap(), "SANDBOX")
+            .await,
+        Err(BankError::Contract)
+    ));
+}
 #[cfg(feature = "testes-postgres")]
 #[tokio::test]
 async fn sincronizacao_atomica_e_vinculo_da_conta() -> anyhow::Result<()> {
@@ -190,6 +279,7 @@ async fn sincronizacao_atomica_e_vinculo_da_conta() -> anyhow::Result<()> {
     let (client, state) = server(0).await;
     let account = Uuid::new_v4();
     let bank = InterBank {
+        pix_lookup_enabled: false,
         db: pool.clone(),
         company,
         account,
@@ -197,6 +287,15 @@ async fn sincronizacao_atomica_e_vinculo_da_conta() -> anyhow::Result<()> {
         client,
         expires: OffsetDateTime::now_utc() + time::Duration::days(7),
     };
+    let pix_id = || PIX_ID.to_owned().try_into().unwrap();
+    assert!(matches!(
+        bank.pix_charge(company, pix_id()).await,
+        Err(BankError::PixDisabled)
+    ));
+    assert!(matches!(
+        bank.pix_charge(Uuid::new_v4(), pix_id()).await,
+        Err(BankError::Account)
+    ));
     let binding = Uuid::new_v4();
     bank.bind_account(binding.as_bytes()).await?;
     assert!(bank.bind_account(Uuid::new_v4().as_bytes()).await.is_err());
@@ -281,4 +380,44 @@ async fn mtls_exige_cliente_e_cadeia_confiavel() -> anyhow::Result<()> {
         }
     }
     Ok(())
+}
+
+#[tokio::test]
+async fn emissao_mock_ausente_nos_dois_ambientes_externos() {
+    use axum::{body::Body, http::Request};
+    use tower::ServiceExt;
+    for mode in ["SANDBOX", "PRODUCTION"] {
+        let db = sqlx_postgres::PgPoolOptions::new()
+            .connect_lazy_with(sqlx_postgres::PgConnectOptions::new());
+        let (client, state) = server(0).await;
+        let bank = InterBank {
+            mode,
+            company: Uuid::new_v4(),
+            account: Uuid::new_v4(),
+            db: db.clone(),
+            client,
+            expires: OffsetDateTime::now_utc() + time::Duration::days(7),
+            pix_lookup_enabled: true,
+        };
+        let origin = "https://ensaio.invalid";
+        let app = crate::router(crate::App {
+            db,
+            secure: true,
+            origin: origin.into(),
+            dummy: Arc::new(String::new()),
+            workers: Arc::new(tokio::sync::Semaphore::new(1)),
+            bank: Arc::new(bank),
+        });
+        let request = Request::post("/api/mock/pix/cobrancas")
+            .header("origin", origin)
+            .header("x-pj-request", "1")
+            .header("content-type", "application/json")
+            .body(Body::from("{}"))
+            .unwrap();
+        assert_eq!(
+            app.oneshot(request).await.unwrap().status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(state.grants.load(SeqCst), 0);
+    }
 }

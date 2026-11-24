@@ -1,4 +1,4 @@
-use super::{BankError, InterBank, LiveDashboard};
+use super::{BankError, InterBank, LiveDashboard, today};
 use crate::domain::{Posted, Reading, Statement, StatementQuery};
 use sqlx_core::transaction::Transaction;
 use sqlx_core::{query::query, query_scalar::query_scalar, row::Row};
@@ -6,11 +6,6 @@ use sqlx_postgres::{PgRow, Postgres};
 use time::{Date, Duration as CalendarDuration, OffsetDateTime};
 use uuid::Uuid;
 
-fn today() -> Date {
-    OffsetDateTime::now_utc()
-        .to_offset(time::macros::offset!(-3))
-        .date()
-}
 impl InterBank {
     pub(super) async fn dashboard(&self) -> Result<LiveDashboard, BankError> {
         let row=query("SELECT balance_json,imported_from,imported_until,synchronized_at FROM inter_read_state WHERE account_id=$1")
@@ -29,6 +24,7 @@ impl InterBank {
         let last_error=query_scalar::<_,Option<String>>("SELECT error_code FROM integration_sync_jobs WHERE company_id=$1 AND account_id=$2 ORDER BY created_at DESC LIMIT 1")
         .bind(self.company).bind(self.account).fetch_optional(&self.db).await?.flatten();
         Ok(LiveDashboard {
+            pix_lookup_enabled: self.pix_lookup_enabled,
             source: self.mode,
             certificate_expires_at: self.expires,
             reading,
