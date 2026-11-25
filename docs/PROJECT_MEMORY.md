@@ -2,6 +2,13 @@
 
 Atualizado em 25/11/2026. Este documento registra decisões duradouras confirmadas no checkout. O estado de execução mais recente fica em [SESSION_HANDOFF.md](SESSION_HANDOFF.md). As instruções vigentes continuam em `AGENTS.md` e no wrapper `cx`.
 
+## Estado publicado — 25/11/2026
+
+- O incremento de extrato detalhado, identidade visual Brilhe Móveis e piloto Pix em preparação foi commitado em `1d8b145` (`feat: prepara piloto pix e detalha extrato`) e publicado na branch `main` do GitHub.
+- A validação local passou para backend, frontend e build Docker. O arquivo de logo duplicado `brilhe.png` permaneceu fora do commit; a logo usada pela aplicação está em `frontend/public/logo-brilhe-moveis.png`.
+- A publicação não inclui `.env`, certificados, chaves, tokens, dumps ou senhas. O remoto Git local usa SSH autenticado.
+- O piloto Pix continua limitado a R$ 0,01 e em preparação; flags de escrita bancária e pagamento real permanecem desativadas. A verificação de acesso ao escopo `pagamento-pix.read` em produção retornou HTTP 401, portanto nenhum Pix foi enviado.
+
 ## Instalação da outra estação — 25/11/2026
 
 - Docker Engine/Moby 29.9.3 e Docker Compose 5.7.1 foram instalados no Fedora 44 e o serviço Docker foi habilitado.
