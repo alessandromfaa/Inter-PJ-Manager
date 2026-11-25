@@ -9,6 +9,7 @@
 - Validações após os refinamentos: Rust fmt, 19 testes unitários + 1 teste de modos, Clippy sem warnings; frontend lint, 2 testes unitários e build. A suíte Playwright completa passou (8/8), inclusive consentimento, cobrança, retries, liquidação e cancelamento.
 - Migration 0011 aplicada pelo bootstrap à stack MOCK E2E isolada. Deploy local em `http://127.0.0.1:18080` saudável (`/ready=ok`); web presa a loopback. Volume mantido e migration 0007/checksum preservados. A bateria E2E deixou registros fictícios nesse volume; não removidos. Stack de leitura configurada à parte não foi alterada.
 - Próximo passo externo: validar scopes e credenciais Pix Automático com Inter e executar homologação oficial de consentimentos, cobranças e callbacks no sandbox. Nenhuma operação bancária real ocorreu; Fase 7 continua excluída.
+- Refinamento documental do contrato oficial: separar `rec` → `solicrec` → `cobr`, estados e webhooks. O MOCK não captura CPF/CNPJ/conta e usa UUIDs internos, portanto não é interoperável com IDs/payloads Inter. Antes de integração externa falta definir minimização/consentimento/armazenamento de dados pessoais e provisionar scopes/certificados de SANDBOX; não presumir a presença deles.
 
 ## Deploy local da branch — 25/11/2026
 

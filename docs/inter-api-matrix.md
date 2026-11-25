@@ -111,6 +111,17 @@ Para a emissão imediata, o contrato revisado em 24/11/2026 especifica PUT com t
 
 Em 25/11/2026, o proprietário informou que a empresa é elegível. Essa informação não constitui confirmação independente do Inter nem prova de habilitação dos escopos. Antes de integração externa: validar o cadastro com o banco, autorizar `rec.*` e `solicrec.*`, confirmar credenciais/certificados e homologar consentimento, recorrência, cobranças e callbacks no sandbox oficial. Nenhum fluxo MOCK abaixo envia operações ao banco.
 
+### Fluxo oficial e pré-requisitos de dados
+
+O contrato separa etapas que o MOCK hoje representa numa única solicitação local:
+
+1. `POST /pix/v2/rec` (`rec.write`) registra a recorrência vinculada a contrato, calendário e dados do devedor (nome + CPF ou CNPJ); retorna o `idRec` oficial.
+2. `POST /pix/v2/solicrec` (`solicrec.write`) envia a solicitação de consentimento à conta do pagador. Exige `idRec`, prazo de expiração e dados bancários/identificação do pagador (`conta`, `ispbParticipante` e CPF ou CNPJ) conforme schema oficial. O retorno/status deve ser acompanhado; aceite, recusa, expiração e cancelamento são estados distintos.
+3. Com a recorrência aceita, `POST /pix/v2/cobr` (`cobr.write`) emite cada cobrança recorrente, com vencimento, valor, recebedor e os dados do devedor exigidos pelo contrato; a liquidação não é inferida da criação.
+4. Acompanhar consultas `rec.read`, `solicrec.read`, `cobr.read` e configurar `webhookrec.*` / `webhookcobr.*`, deduplicando notificações antes de atualizar o estado local.
+
+O MOCK não coleta CPF/CNPJ nem dados bancários e usa UUID interno, não os identificadores oficiais de 29 caracteres. Portanto não se pode enviar diretamente o registro MOCK ao Inter. Antes de implementar formulário/armazenamento externo, definir finalidade, consentimento e proteção de dados pessoais. A matriz de integração já usa OAuth mTLS; credenciais de sandbox são esperadas em arquivos privados `sandbox/{client_id,client_secret,cert.pem,key.pem}` sob `INTER_CREDENTIALS_ROOT`, com `INTER_ACCOUNT_NUMBER` e vínculo local configurados. Ainda não foi verificado se esses materiais ou scopes existem no ambiente.
+
 [Especificação oficial](https://developers.inter.co/redocusaurus/swagger-api-pix-automatico-yaml.yaml)
 
 | Operação e versão | Escopo | P | S | Respostas HTTP |

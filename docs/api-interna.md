@@ -88,22 +88,6 @@ A rota POST `/api/mock/pagamentos/pix/aprovar` exige usuário distinto do autor,
 
 ## Contas demonstrativas em MOCK — Fase 5
 
-## Pix Automático demonstrativo em MOCK
-
-Estas rotas só são registradas quando `INTER_ENV=mock`; usam a empresa da sessão, validação comum de origem, valores em centavos exatos e auditoria transacional. Não coletam CPF/CNPJ ou dados bancários e não enviam cobranças nem pagamentos.
-
-| Rota | Permissão e resultado |
-|---|---|
-| GET /api/mock/pix-automatico/recorrencias | Perfis de consulta; lista autorizações fictícias da empresa. |
-| POST /api/mock/pix-automatico/recorrencias | ADMIN ou OPERATOR; cria autorização e solicitação de consentimento fictícia em estado `AGUARDANDO_CONSENTIMENTO`. |
-| POST /api/mock/pix-automatico/recorrencias/decidir | ADMIN ou OPERATOR; simula aceite/recusa. Repetição da mesma decisão retorna o estado final; decisão oposta conflita. Aceite muda para `ATIVA`; não representa consentimento real. |
-| POST /api/mock/pix-automatico/recorrencias/cancelar | ADMIN ou OPERATOR; cancela solicitação pendente ou autorização ativa; repetição após sucesso retorna o estado final sem novo evento de auditoria. |
-| GET /api/mock/pix-automatico/cobrancas | Perfis de consulta; lista cobranças fictícias da empresa. |
-| POST /api/mock/pix-automatico/cobrancas | ADMIN ou OPERATOR; cria cobrança para autorização ativa, valor fixado e competência ainda não usada. Repetir a competência retorna a mesma cobrança (200), sem nova auditoria. |
-| POST /api/mock/pix-automatico/cobrancas/liquidar | ADMIN ou OPERATOR; marca uma cobrança como liquidada em simulação e gera identificador sintético; repetição retorna o mesmo resultado final. |
-
-Escopo funcional do MOCK: um valor fixo por recorrência; competências são lançadas manualmente e a aplicação não envia notificações ao pagador. A contratação externa exige contrato Pix Automático oficial, consentimento válido, identificação do devedor e conta recebedora segundo contrato, scopes e credenciais concedidos pelo Inter, além de homologação no sandbox. A elegibilidade foi informada pelo proprietário, mas não confirmada independentemente pelo banco.
-
 | Rota | Permissão e resultado |
 |---|---|
 | GET /api/mock/financeiro | Lista até 200 contas da empresa da sessão. |
@@ -120,3 +104,19 @@ Escopo funcional do MOCK: um valor fixo por recorrência; competências são lan
 | GET/POST /api/mock/centros-custo | Lista ou cria centro de custo MOCK da empresa. |
 
 Os registros são demonstrativos e não alteram saldo bancário nem enviam pagamentos. Cada alteração é auditada na mesma transação.
+
+## Pix Automático demonstrativo em MOCK
+
+Estas rotas só são registradas quando `INTER_ENV=mock`; usam a empresa da sessão, validação comum de origem, valores em centavos exatos e auditoria transacional. Não coletam CPF/CNPJ ou dados bancários e não enviam cobranças nem pagamentos.
+
+| Rota | Permissão e resultado |
+|---|---|
+| GET /api/mock/pix-automatico/recorrencias | Perfis de consulta; lista autorizações fictícias da empresa. |
+| POST /api/mock/pix-automatico/recorrencias | ADMIN ou OPERATOR; cria autorização e solicitação de consentimento fictícia em estado `AGUARDANDO_CONSENTIMENTO`. |
+| POST /api/mock/pix-automatico/recorrencias/decidir | ADMIN ou OPERATOR; simula aceite/recusa. Repetição da mesma decisão retorna o estado final; decisão oposta conflita. Aceite muda para `ATIVA`; não representa consentimento real. |
+| POST /api/mock/pix-automatico/recorrencias/cancelar | ADMIN ou OPERATOR; cancela solicitação pendente ou autorização ativa; repetição após sucesso retorna o estado final sem novo evento de auditoria. |
+| GET /api/mock/pix-automatico/cobrancas | Perfis de consulta; lista cobranças fictícias da empresa. |
+| POST /api/mock/pix-automatico/cobrancas | ADMIN ou OPERATOR; cria cobrança para autorização ativa, valor fixado e competência ainda não usada. Repetir a competência retorna a mesma cobrança (200), sem nova auditoria. |
+| POST /api/mock/pix-automatico/cobrancas/liquidar | ADMIN ou OPERATOR; marca uma cobrança como liquidada em simulação e gera identificador sintético; repetição retorna o mesmo resultado final. |
+
+Escopo funcional do MOCK: um valor fixo por recorrência; competências são lançadas manualmente e a aplicação não envia notificações ao pagador. Não converte dados MOCK em chamadas externas: o contrato do Inter separa `POST /pix/v2/rec` (cadastro da recorrência), `POST /pix/v2/solicrec` (solicitação de consentimento direcionada à conta do pagador) e `POST /pix/v2/cobr` (cobranças após aceite). Requer scopes `rec.write`, `solicrec.write`, `cobr.write` e leitura/callbacks correspondentes. A API exige identificadores oficiais e dados de CPF/CNPJ/conta que a tela MOCK intencionalmente não guarda. Implementação externa depende de definir tratamento protegido e consentimento para esses dados, scopes/credenciais Inter e homologação no sandbox. A elegibilidade foi informada pelo proprietário, sem confirmação independente do banco.
