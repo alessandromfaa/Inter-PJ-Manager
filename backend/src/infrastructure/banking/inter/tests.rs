@@ -19,6 +19,7 @@ use std::{
 struct MockState {
     grants: AtomicUsize,
     balances: AtomicUsize,
+    transfers: AtomicUsize,
     scenario: AtomicUsize,
 }
 async fn token(
@@ -38,6 +39,8 @@ async fn token(
                     | "cob.write"
                     | "boleto-cobranca.write"
                     | "rec.read"
+                    | "pagamento-pix.read"
+                    | "pagamento-pix.write"
             )
         )
         || fields.get("client_id").map(String::as_str) != Some("cliente-teste")
@@ -121,6 +124,38 @@ async fn statement(
 }
 const PIX_ID: &str = "TESTE00000000000000000000001";
 const REC_ID: &str = "RR1234567820240115abcdefghijk";
+async fn payment_status_mock(
+    State(state): State<Arc<MockState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    h: HeaderMap,
+) -> Response {
+    if !authorized_scope(&h, "pagamento-pix.read") {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let scenario = state.scenario.load(SeqCst);
+    Json(json!({"transacaoPix":{"codigoSolicitacao":if scenario == 41 {"00000000-0000-0000-0000-000000000001"} else {&id},"status":if scenario == 42 {"DESCONHECIDO"} else {"PAGO"}}})).into_response()
+}
+async fn transfer_mock(
+    State(state): State<Arc<MockState>>,
+    h: HeaderMap,
+    Json(body): Json<serde_json::Value>,
+) -> Response {
+    state.transfers.fetch_add(1, SeqCst);
+    if !authorized_scope(&h, "pagamento-pix.write")
+        || h.get("x-id-idempotente")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| Uuid::parse_str(v).ok())
+            .is_none()
+        || body
+            != json!({"valor": 0.01, "destinatario": {"tipo":"CHAVE","chave":"teste@example.invalid"}})
+    {
+        return StatusCode::BAD_REQUEST.into_response();
+    }
+    if state.scenario.load(SeqCst) == 43 {
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    Json(json!({"tipoRetorno":"APROVACAO","codigoSolicitacao":Uuid::new_v4()})).into_response()
+}
 async fn recurrence(
     State(state): State<Arc<MockState>>,
     axum::extract::Path(id): axum::extract::Path<String>,
@@ -212,6 +247,8 @@ async fn server(scenario: usize) -> (ClientInter, Arc<MockState>) {
         .route("/cobranca/v3/cobrancas", post(issue_bill))
         .route("/cobranca/v3/cobrancas/{id}", get(received_bill))
         .route("/banking/v2/extrato/completo", get(statement))
+        .route("/banking/v2/pix/{id}", get(payment_status_mock))
+        .route("/banking/v2/pix", post(transfer_mock))
         .with_state(state.clone());
     tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
     let http = Client::builder()
@@ -234,6 +271,172 @@ async fn server(scenario: usize) -> (ClientInter, Arc<MockState>) {
         .fast_mock(),
         state,
     )
+}
+#[tokio::test]
+async fn consulta_pagamento_valida_escopo_identificador_e_estado() {
+    let (client, state) = server(0).await;
+    let id = uuid::Uuid::parse_str("c42f0787-02cb-4b31-827e-459ec9d7ece1").unwrap();
+    assert_eq!(client.payment_status(id).await.unwrap(), "PAGO");
+    for scenario in [41, 42] {
+        state.scenario.store(scenario, SeqCst);
+        assert!(matches!(
+            client.payment_status(id).await,
+            Err(BankError::Contract)
+        ));
+    }
+}
+#[tokio::test]
+async fn envio_pix_envia_centavo_uma_vez_mesmo_quando_falha() {
+    let (client, state) = server(0).await;
+    let accepted = client
+        .submit_payment(Uuid::new_v4(), 1, "teste@example.invalid")
+        .await
+        .unwrap();
+    assert_eq!(accepted.state, "AGUARDANDO_APROVACAO");
+    assert!(!accepted.reference.is_nil());
+    state.scenario.store(43, SeqCst);
+    assert!(matches!(
+        client
+            .submit_payment(Uuid::new_v4(), 1, "teste@example.invalid")
+            .await,
+        Err(BankError::Http(503))
+    ));
+    assert_eq!(state.transfers.load(SeqCst), 2);
+}
+
+#[cfg(feature = "testes-postgres")]
+#[tokio::test]
+#[ignore = "requer banco descartável e flags de envio no processo de teste"]
+async fn piloto_pix_duas_pessoas_e_um_unico_envio() -> anyhow::Result<()> {
+    use axum::{
+        body::{Body, to_bytes},
+        http::Request,
+    };
+    use sqlx_postgres::{PgConnectOptions, PgPoolOptions};
+    use std::str::FromStr;
+    use tower::ServiceExt;
+    let options = PgConnectOptions::from_str(&env::var("TEST_DATABASE_URL")?)?;
+    ensure!(
+        options.get_host() == "127.0.0.1" && options.get_database() == Some("inter_pj_test"),
+        "Banco descartável obrigatório"
+    );
+    let db = PgPoolOptions::new().connect_with(options).await?;
+    sqlx_core::migrate::Migrator::new(Path::new("migrations"))
+        .await?
+        .run(&db)
+        .await?;
+    let company = Uuid::new_v4();
+    let account = Uuid::new_v4();
+    query("INSERT INTO companies VALUES($1,'Ensaio')")
+        .bind(company)
+        .execute(&db)
+        .await?;
+    query("INSERT INTO bank_accounts VALUES($1,$2,'Teste')")
+        .bind(account)
+        .bind(company)
+        .execute(&db)
+        .await?;
+    let mut actors = Vec::new();
+    for (role, secret) in [("ADMIN", [11u8; 20]), ("APPROVER", [12u8; 20])] {
+        let id = Uuid::new_v4();
+        let token = format!("{}{}", id.simple(), Uuid::new_v4().simple());
+        let email = format!("{id}@example.invalid");
+        query("INSERT INTO users(id,company_id,email,password_hash) VALUES($1,$2,$3,'teste')")
+            .bind(id)
+            .bind(company)
+            .bind(&email)
+            .execute(&db)
+            .await?;
+        query("INSERT INTO user_roles VALUES($1,$2::text::user_role)")
+            .bind(id)
+            .bind(role)
+            .execute(&db)
+            .await?;
+        query("INSERT INTO user_sessions VALUES($1,$2,now()+interval '1 hour')")
+            .bind(Sha256::digest(token.as_bytes()).to_vec())
+            .bind(id)
+            .execute(&db)
+            .await?;
+        let encrypted =
+            crate::mfa::encrypt(&[7; 32], &secret).map_err(|_| anyhow::anyhow!("cifra"))?;
+        query("INSERT INTO user_mfa_credentials(company_id,user_id,encrypted_secret,enabled_at) VALUES($1,$2,$3,now())").bind(company).bind(id).bind(encrypted).execute(&db).await?;
+        let generator = totp_rs::Builder::new()
+            .with_secret(secret.to_vec())
+            .with_account_name(email)
+            .build()?;
+        actors.push((format!("pj_session={token}"), generator));
+    }
+    let (client, state) = server(0).await;
+    let bank = InterBank {
+        company,
+        account,
+        mode: "SANDBOX",
+        client,
+        db: db.clone(),
+        expires: OffsetDateTime::now_utc() + time::Duration::days(1),
+        pix_lookup_enabled: false,
+    };
+    let router = crate::router(crate::App {
+        db,
+        secure: true,
+        origin: "https://teste.invalid".into(),
+        bank: Arc::new(bank),
+        dummy: Arc::new(String::new()),
+        workers: Arc::new(tokio::sync::Semaphore::new(2)),
+        mfa_key: Arc::new([7; 32]),
+    });
+    let call = |path: &str, actor: usize, body: serde_json::Value| {
+        let router = router.clone();
+        let request = Request::post(format!("/api/pagamentos/pix{path}"))
+            .header("origin", "https://teste.invalid")
+            .header("x-pj-request", "1")
+            .header("cookie", &actors[actor].0)
+            .header("content-type", "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap();
+        async move {
+            let response = router.oneshot(request).await.unwrap();
+            let status = response.status();
+            let bytes = to_bytes(response.into_body(), 8192).await.unwrap();
+            (
+                status,
+                serde_json::from_slice::<serde_json::Value>(&bytes).unwrap_or_default(),
+            )
+        }
+    };
+    let body =
+        json!({"idempotencia":Uuid::new_v4(),"valor_centavos":"1","chave":"teste@example.invalid"});
+    let (status, entry) = call("", 0, body.clone()).await;
+    assert_eq!(status, StatusCode::OK, "{entry}");
+    assert_eq!(call("", 0, body.clone()).await.1, entry);
+    let confirm = |actor: usize| json!({"id":entry["id"],"valor_centavos":"1","chave":body["chave"],"codigo_mfa":actors[actor].1.generate_current().to_string()});
+    assert_eq!(
+        call("/aprovar", 0, confirm(0)).await.0,
+        StatusCode::FORBIDDEN
+    );
+    let mut wrong = confirm(1);
+    wrong["chave"] = json!("outra@example.invalid");
+    assert_eq!(call("/aprovar", 1, wrong).await.0, StatusCode::CONFLICT);
+    let mut bad = confirm(1);
+    bad["codigo_mfa"] = json!("invalido");
+    assert_eq!(call("/aprovar", 1, bad).await.0, StatusCode::FORBIDDEN);
+    assert_eq!(
+        call("/aprovar", 1, confirm(1)).await.1["situacao"],
+        "APROVADO"
+    );
+    assert_eq!(state.transfers.load(SeqCst), 0);
+    let (a, b) = tokio::join!(
+        call("/enviar", 0, confirm(0)),
+        call("/enviar", 0, confirm(0))
+    );
+    assert_eq!(a.0, StatusCode::OK);
+    assert_eq!(b.0, StatusCode::OK);
+    assert_eq!(state.transfers.load(SeqCst), 1);
+    assert_eq!(
+        call("/consultar", 0, json!({"id":entry["id"]})).await.1["situacao"],
+        "PAGO"
+    );
+    Ok(())
 }
 #[tokio::test]
 async fn consulta_recorrencia_valida_identificador_escopo_e_resposta() {

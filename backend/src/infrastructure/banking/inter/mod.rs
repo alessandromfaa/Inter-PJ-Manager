@@ -3,6 +3,11 @@ mod contract;
 mod receipts;
 mod sandbox;
 pub use contract::Balance;
+pub(crate) use contract::pagamento_pix_contract::pagamento_por_chave;
+pub struct PaymentAccepted {
+    pub reference: uuid::Uuid,
+    pub state: &'static str,
+}
 mod store;
 #[cfg(test)]
 mod tests;
@@ -233,6 +238,15 @@ pub async fn verify_balance_access() -> Result<()> {
     );
     Ok(())
 }
+pub async fn verify_payment_access() -> Result<()> {
+    let connection = Connection::load()?;
+    connection.client.verify_payment_scopes().await?;
+    println!(
+        "{}: OAuth de consulta e inclusão de pagamento Pix confirmado.",
+        connection.mode
+    );
+    Ok(())
+}
 
 impl InterBank {
     pub async fn configured(db: PgPool) -> Result<Self> {
@@ -347,6 +361,39 @@ impl BankProvider for InterBank {
     }
     fn collection_binding(&self) -> Option<(Uuid, Uuid)> {
         Some((self.company, self.account))
+    }
+    async fn submit_payment(
+        &self,
+        company: Uuid,
+        id: Uuid,
+        amount: i64,
+        key: &str,
+    ) -> Result<PaymentAccepted, BankError> {
+        self.tenant(company)?;
+        if !crate::config::payment_send_enabled(self.mode) {
+            return Err(BankError::Account);
+        }
+        if self.expires <= OffsetDateTime::now_utc() {
+            return Err(BankError::Certificate);
+        }
+        tokio::time::timeout(
+            Duration::from_secs(60),
+            self.client.submit_payment(id, amount, key),
+        )
+        .await
+        .map_err(|_| BankError::Timeout)?
+    }
+    async fn payment_status(&self, company: Uuid, reference: Uuid) -> Result<String, BankError> {
+        self.tenant(company)?;
+        if self.expires <= OffsetDateTime::now_utc() {
+            return Err(BankError::Certificate);
+        }
+        tokio::time::timeout(
+            Duration::from_secs(60),
+            self.client.payment_status(reference),
+        )
+        .await
+        .map_err(|_| BankError::Timeout)?
     }
     async fn confirm_receipt(
         &self,

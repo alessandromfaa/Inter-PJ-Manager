@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { Recebimentos } from "./pages/recebimentos";
 import { MockPayments } from "./pages/mock-payments";
+import { InterPayments } from "./pages/inter-payments";
 import { Financeiro } from "./pages/financeiro";
 import { PixAutomatico } from "./pages/pix-automatico";
 import { Pix } from "./pages/pix";
@@ -119,13 +120,15 @@ function App() {
       (data.data &&
         data.data.source !== "MOCK" &&
         data.data.pix_lookup_enabled));
+  const canPrepareInter = data.data && data.data.source !== "MOCK" && data.data.payment_preparation &&
+    session.data.roles.some((role) => ["ADMIN", "OPERATOR", "APPROVER"].includes(role));
   return (
     <div className={"shell " + (dark ? "dark" : "")}>
       <a className="skip-link" href="#conteudo">Ir para o conteúdo</a>
       <aside>
         <Brand />
         <button className="menu-toggle" aria-expanded={menuOpen} aria-controls="navegacao" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={20} /> : <Menu size={20} />} {menuOpen ? "Fechar menu" : "Menu"}</button>
-        <div className="navgroup">ÁREA FINANCEIRA</div>
+        <div className="navgroup">ÁREA FINANCEIRA · BRILHE MÓVEIS</div>
         <nav id="navegacao" aria-label="Navegação principal" className={menuOpen ? "open" : ""}>
           {[
             { name: "Visão geral", icon: LayoutDashboard },
@@ -138,7 +141,7 @@ function App() {
             )
               ? [{ name: "Recebimentos", icon: Receipt }]
               : []),
-            ...(canSeeMockPayments
+            ...(canSeeMockPayments || canPrepareInter
               ? [{ name: "Pagamentos Pix", icon: Wallet }]
               : []),
             ...(mode.data === "MOCK"
@@ -217,6 +220,8 @@ function App() {
               user={session.data}
               onExpired={() => setSessionExpired(true)}
             />
+          ) : view === "Pagamentos Pix" && canPrepareInter ? (
+            <InterPayments key={session.data.id + mode.data} user={session.data} onExpired={() => setSessionExpired(true)} />
           ) : view === "Recebimentos" ? (
             <Recebimentos
               key={session.data.id + mode.data}

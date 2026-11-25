@@ -1,5 +1,5 @@
 use super::{BankError, InterBank, LiveDashboard, today};
-use crate::domain::{Posted, Reading, Statement, StatementQuery};
+use crate::domain::{Posted, Reading, Statement, StatementQuery, StatementSummary};
 use sqlx_core::transaction::Transaction;
 use sqlx_core::{query::query, query_scalar::query_scalar, row::Row};
 use sqlx_postgres::{PgRow, Postgres};
@@ -24,6 +24,7 @@ impl InterBank {
         let last_error=query_scalar::<_,Option<String>>("SELECT error_code FROM integration_sync_jobs WHERE company_id=$1 AND account_id=$2 ORDER BY created_at DESC LIMIT 1")
         .bind(self.company).bind(self.account).fetch_optional(&self.db).await?.flatten();
         Ok(LiveDashboard {
+            payment_preparation: crate::config::payment_preparation(self.mode),
             pix_lookup_enabled: self.pix_lookup_enabled,
             source: self.mode,
             certificate_expires_at: self.expires,
@@ -41,15 +42,44 @@ impl InterBank {
             return Err(BankError::Period);
         }
         let offset = i64::from(filter.pagina.unwrap_or(0)) * 50;
-        let mut entries=query("SELECT (posted_at AT TIME ZONE 'UTC')::date AS date,inter_kind,amount_cents FROM bank_transactions
+        let totals = query("SELECT COUNT(*) AS total_entries,
+          COALESCE(SUM(amount_cents) FILTER (WHERE amount_cents > 0), 0)::text AS incoming_cents,
+          COALESCE(SUM(amount_cents) FILTER (WHERE amount_cents < 0), 0)::text AS outgoing_cents,
+          COALESCE(SUM(amount_cents), 0)::text AS net_cents
+          FROM bank_transactions
+          WHERE company_id=$1 AND account_id=$2 AND inter_current AND inter_kind IS NOT NULL
+          AND posted_at>=($3::date::timestamp AT TIME ZONE 'UTC') AND posted_at<(($4::date+1)::timestamp AT TIME ZONE 'UTC')")
+            .bind(self.company).bind(self.account).bind(begin).bind(end)
+            .fetch_one(&self.db).await?;
+        let total_entries: i64 = totals.get("total_entries");
+        let incoming_cents: String = totals.get("incoming_cents");
+        let outgoing_cents: String = totals.get("outgoing_cents");
+        let net_cents: String = totals.get("net_cents");
+        let mut entries=query("SELECT provider_reference,(posted_at AT TIME ZONE 'UTC')::date AS date,
+          inter_included_on,inter_kind,inter_operation,inter_title,inter_description,inter_document_number,amount_cents
+          FROM bank_transactions
        WHERE company_id=$1 AND account_id=$2 AND inter_current AND inter_kind IS NOT NULL
        AND posted_at>=($3::date::timestamp AT TIME ZONE 'UTC') AND posted_at<(($4::date+1)::timestamp AT TIME ZONE 'UTC')
        ORDER BY posted_at DESC, provider_reference LIMIT 51 OFFSET $5")
       .bind(self.company).bind(self.account).bind(begin).bind(end).bind(offset)
-      .map(|r:PgRow|Posted{date:r.get("date"),kind:r.get("inter_kind"),cents:r.get::<i64,_>("amount_cents").to_string()}).fetch_all(&self.db).await?;
+      .map(|r:PgRow|Posted{
+          transaction_id:r.get("provider_reference"), date:r.get("date"), included_on:r.get("inter_included_on"),
+          kind:r.get("inter_kind"), operation:r.get::<Option<String>,_>("inter_operation").unwrap_or_else(|| if r.get::<i64,_>("amount_cents") >= 0 { "C".into() } else { "D".into() }),
+          title:r.get("inter_title"), description:r.get("inter_description"), document_number:r.get("inter_document_number"),
+          cents:r.get::<i64,_>("amount_cents").to_string()
+      }).fetch_all(&self.db).await?;
         let has_more = entries.len() > 50;
         entries.truncate(50);
-        Ok(Statement { entries, has_more })
+        Ok(Statement {
+            entries,
+            has_more,
+            summary: StatementSummary {
+                total_entries,
+                incoming_cents,
+                outgoing_cents,
+                net_cents,
+            },
+        })
     }
     pub(super) async fn run_sync(&self, actor: Uuid) -> Result<(), BankError> {
         let mut tx = self.db.begin().await?;
@@ -121,19 +151,32 @@ impl InterBank {
             let mut dates = Vec::new();
             let mut kinds = Vec::new();
             let mut amounts = Vec::new();
+            let mut operations = Vec::new();
+            let mut titles = Vec::new();
+            let mut descriptions = Vec::new();
+            let mut documents = Vec::new();
+            let mut included_on = Vec::new();
             for e in chunk {
                 ids.push(Uuid::new_v4());
                 refs.push(e.id_transacao.as_str());
                 dates.push(e.data_transacao);
                 kinds.push(e.tipo_transacao.as_str());
                 amounts.push(e.signed_cents()?);
+                operations.push(e.operation());
+                titles.push(e.titulo.as_deref());
+                descriptions.push(e.descricao.as_deref());
+                documents.push(e.numero_documento.as_deref());
+                included_on.push(e.data_inclusao);
             }
-            query("INSERT INTO bank_transactions(id,company_id,account_id,provider_reference,posted_at,inter_kind,amount_cents)
-          SELECT t.id,$1,$2,t.ref,t.day::timestamp AT TIME ZONE 'UTC',t.kind,t.amount
-          FROM unnest($3::uuid[],$4::text[],$5::date[],$6::text[],$7::bigint[]) AS t(id,ref,day,kind,amount)
+            query("INSERT INTO bank_transactions(id,company_id,account_id,provider_reference,posted_at,inter_kind,inter_operation,inter_title,inter_description,inter_document_number,inter_included_on,amount_cents)
+          SELECT t.id,$1,$2,t.ref,t.day::timestamp AT TIME ZONE 'UTC',t.kind,t.operation,t.title,t.description,t.document,t.included_on,t.amount
+          FROM unnest($3::uuid[],$4::text[],$5::date[],$6::text[],$7::text[],$8::text[],$9::text[],$10::text[],$11::date[],$12::bigint[]) AS t(id,ref,day,kind,operation,title,description,document,included_on,amount)
           ON CONFLICT(account_id,provider_reference) DO UPDATE SET posted_at=excluded.posted_at,inter_kind=excluded.inter_kind,
+          inter_operation=excluded.inter_operation,inter_title=excluded.inter_title,inter_description=excluded.inter_description,
+          inter_document_number=excluded.inter_document_number,inter_included_on=excluded.inter_included_on,
           amount_cents=excluded.amount_cents,inter_current=true")
-          .bind(self.company).bind(self.account).bind(ids).bind(refs).bind(dates).bind(kinds).bind(amounts).execute(&mut **tx).await?;
+          .bind(self.company).bind(self.account).bind(ids).bind(refs).bind(dates).bind(kinds).bind(operations)
+          .bind(titles).bind(descriptions).bind(documents).bind(included_on).bind(amounts).execute(&mut **tx).await?;
         }
         query("INSERT INTO inter_read_state(account_id,imported_from,imported_until,balance_json,synchronized_at) VALUES($1,$2,$3,$4,clock_timestamp())
       ON CONFLICT(account_id) DO UPDATE SET imported_from=least(inter_read_state.imported_from,excluded.imported_from),imported_until=excluded.imported_until,balance_json=excluded.balance_json,synchronized_at=excluded.synchronized_at")

@@ -19,7 +19,7 @@
 | RUST_LOG | Filtro de tracing, padrão info. |
 | APP_TIMEZONE | Valor previsto America/Fortaleza. O frontend da primeira fase utiliza esse fuso fixo. |
 | INTER_CREDENTIALS_ROOT, INTER_COMPANY_ID, INTER_ACCOUNT_ID, INTER_ACCOUNT_NUMBER | Diretório de arquivos por ambiente, UUID da empresa, UUID local estável da conta e número da conta. Ver docs/inter.md. |
-| ENGINE | Motor dos scripts locais, docker por padrão, ou podman. |
+| ENGINE | Motor Docker usado pelos scripts locais. |
 | TEST_DATABASE_URL | Banco descartável de testes de integração, nome inter_pj_test em 127.0.0.1. |
 | E2E_ORIGIN, E2E_EMAIL, E2E_PASSWORD, CHROME_PATH | Configuração exclusiva dos testes de navegador. |
 

@@ -10,7 +10,6 @@ Ensaios locais de 23/11/2026. Ambiente bancário MOCK em todas as execuções.
 | Dependências | cargo audit e npm audit concluídos sem vulnerabilidades identificadas nas bases consultadas |
 | Frontend | ESLint, TypeScript strict, build Vite e dois testes Vitest aprovados |
 | Docker Compose | Build das imagens e inicialização em VM local. Bootstrap terminou com código 0. PostgreSQL, API e web saudáveis. API com UID 65532 e web com UID 101 |
-| Podman | Build e inicialização do mesmo manifesto na VM com Podman 4.9.3 e provedor Docker Compose. Três serviços saudáveis e /ready respondeu ok. Ensaio realizado com privilégios administrativos somente dentro da VM |
 | Playwright | Fluxo pela origem servida pelo NGINX aprovado. Incluiu validação do formulário, login, painel MOCK, alternância de tema, largura de 390 px, pesquisa no extrato, auditoria, logout e negativa após revogação |
 | Backup e restauração | Dump gerado pelo script, restaurado com pg_restore --single-transaction em banco novo. Conferidas uma empresa e duas migrations com sucesso |
 | Administração local | Provisionamento de usuário VIEWER pelo comando criar-usuario em contêiner da instância de teste |

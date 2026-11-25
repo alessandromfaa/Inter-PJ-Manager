@@ -1,5 +1,33 @@
 # Continuidade da sessão
 
+## Instalação da outra estação — 25/11/2026
+
+- Docker Engine/Moby 29.9.3 e Docker Compose 5.7.1 foram instalados no Fedora 44; o serviço está habilitado e ativo.
+- O motor anterior e suas configurações/dados locais foram removidos. Não há referências textuais restantes ao motor anterior no checkout.
+- A configuração `.env` está em MOCK com `ENABLE_BANK_READS=false`, `ENABLE_BANK_WRITES=false` e `ENABLE_REAL_PAYMENTS=false`; os segredos locais estão protegidos e ignorados pelo Git.
+- PostgreSQL, bootstrap, API e web estão saudáveis em `http://127.0.0.1:8080`. Login inicial e sessão foram validados sem expor a senha.
+- A logo da Brilhe Móveis foi integrada ao frontend como ativo local; o nome exibido do produto é `PJ Manager`. Credenciais Inter não foram transferidas; HTTPS e leitura real permanecem pendentes de autorização e configuração privada.
+
+## Rebranding Brilhe Móveis — 25/11/2026
+
+- Aplicada a identidade visual da Brilhe Móveis no frontend: logo, azul-marinho, laranja e superfícies claras/escuro refinadas.
+- O nome exibido foi alterado de `Inter PJ Manager` para `PJ Manager` no título, login, navegação, marca e textos de interface.
+- Frontend reconstruído e republicado no Docker; build TypeScript/Vite, logo servida por HTTP 200 e containers saudáveis.
+
+## Produção somente leitura — 25/11/2026
+
+- Após confirmação do proprietário, `.env` foi preparado com `APP_ENV=production`, `INTER_ENV=production`, `ENABLE_BANK_READS=true`, `ENABLE_BANK_WRITES=false` e `ENABLE_REAL_PAYMENTS=false`.
+- Quatro arquivos mTLS foram transferidos por SSH com host key confirmada e montados no container com leitura pelo UID 65532. Empresa é a nova do banco; `INTER_ACCOUNT_ID` é UUID novo e estável.
+- Criado proxy TLS local em `https://127.0.0.1:8443` com certificado autoassinado para loopback. O frontend não publica mais HTTP diretamente; o certificado precisa ser confiado manualmente no navegador local.
+- Consulta autorizada `verificar-acesso-saldo` ao Inter terminou com timeout. Nenhum dado bancário foi exibido e nenhuma escrita/transação ocorreu. Acesso local HTTPS, login, sessão e `/ready` retornaram HTTP 200.
+- Reteste posterior validou handshake mTLS e OAuth `extrato.read`; `verificar-acesso-saldo` passou e uma sincronização autorizada retornou HTTP 204. O job ficou `CONCLUIDO` e a leitura foi persistida sem executar escritas bancárias.
+
+## Ajuste visual do Pix Automático — 25/11/2026
+
+- Corrigido o formulário da tela para usar o grid visual compartilhado e exibir claramente o botão de criação.
+- Ações de consentimento agora têm hierarquia visual distinta para aceitar, recusar e cancelar, com layout responsivo.
+- Frontend reconstruído e republicado no Docker; TypeScript/Vite, `/ready` e página local retornaram sucesso. Lint e Vitest locais ficaram pendentes porque `npm ci` sem Docker não concluiu nesta sessão.
+
 ## Revisão de segurança e interface — 25/11/2026
 
 - Preparação da integração à `main`: `cargo fmt --check`, `cargo test --locked --features testes-postgres` (23 testes no binário e 2 de modos), Clippy todas as features e Playwright (9/9, incluindo axe) passaram em MOCK; PostgreSQL descartável em tmpfs encerrado. Frontend lint, 2 testes, build e `npm audit`, e `cargo audit` passaram na revisão anterior. `git diff --check` passou para alterações de trabalho; comparação integral com `main` sinaliza somente linha final preservada da migration 0007, necessária ao checksum já aplicado. `origin/main` consultada apontava para 729f83f antes da integração.
@@ -252,6 +280,18 @@ O trabalho da Fase 3 ainda não foi commitado. As mudanças listadas acima estav
 - Verificação de shell e teste de backup permanecem pendentes para a validação final; os comandos envolveriam o serviço de banco local, que não foi iniciado.
 
 ## Fatos, decisões e pendências
+
+## Extrato detalhado — 25/11/2026
+
+- Piloto Pix por chave de R$ 0,01 publicado em modo preparação. Migration 0013 aplicada após backup com catálogo validado. API e web saudáveis. HTTPS retornou 200 em `/ready`, 401 para a lista sem sessão e 404 no caminho de envio. Zero intenções reais no aceite.
+- A tela permite encaminhar para revisão e aprovar com TOTP de outra pessoa. O código de transmissão usa o id persistido e um único POST. O envio requer confirmação do autor com MFA. Um erro após a reserva deixa a intenção bloqueada para reenvio. A consulta usa a referência do banco quando disponível.
+- Validação em PostgreSQL descartável e servidor Inter fictício: `cargo test --locked --features testes-postgres` e teste explícito `piloto_pix_duas_pessoas_e_um_unico_envio -- --ignored` passaram, assim como a verificação SQL de restrições. Dois envios concorrentes da mesma intenção geraram um POST simulado. `cargo fmt --check`, Clippy com todos os recursos, lint, Vitest e build do frontend passaram.
+- Pendências externas: um só usuário ativo na empresa vinculada. Solicitada indicação do segundo aprovador. Em produção, `manager verificar-acesso-pix` recebeu HTTP 401 no OAuth de `pagamento-pix.read` antes de testar o escopo de escrita. Credenciais de sandbox ausentes nesta instalação. Para a homologação, usar os escopos `pagamento-pix.read` e `pagamento-pix.write` da API Banking. Flags de escrita e envio real desativadas. A confirmação do Pix cabe ao operador.
+
+- O contrato oficial `/banking/v2/extrato/completo` foi ampliado no adapter para preservar id, data de inclusão, operação, título, descrição e documento, sem importar `detalhes` de terceiros.
+- `GET /api/extrato` agora retorna esses metadados e resumo do período (quantidade, entradas, saídas e resultado líquido); a tela de Extrato ganhou cartões e colunas correspondentes.
+- `backend/migrations/0012_extrato_detalhado.sql` é aditiva; frontend e backend compilaram via `docker compose build`.
+- Após autorização, a migration foi renumerada para `0012_extrato_detalhado.sql` e aplicada; API/frontend/TLS estão saudáveis em HTTPS. `ENABLE_PIX_CHARGE_READS=true` foi habilitado para consultas Pix de leitura. `ENABLE_BANK_WRITES=false` e `ENABLE_REAL_PAYMENTS=false` continuam ativos.
 
 - **Fato confirmado:** Compose de produção local estava saudável após restauração, API reportou modo PRODUCTION e sincronização de leitura anterior retornou saldo e extrato sem erro. A URL HTTPS local usa certificado próprio de teste.
 - **Decisão do proprietário:** MOCK no desenvolvimento, produção somente leitura, SEFIN fora de escopo, identidade visual da logo apenas no final.

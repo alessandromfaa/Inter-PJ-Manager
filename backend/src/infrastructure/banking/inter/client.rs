@@ -28,6 +28,8 @@ pub struct ClientInter {
     issue_pix_token: Mutex<Option<Token>>,
     issue_bill_token: Mutex<Option<Token>>,
     recurrence_token: Mutex<Option<Token>>,
+    payment_read_token: Mutex<Option<Token>>,
+    payment_write_token: Mutex<Option<Token>>,
     billing: Pacer,
     pix: Pacer,
     oauth: Pacer,
@@ -42,6 +44,8 @@ enum ReadApi {
     IssuePix,
     IssueBill,
     Recurrence,
+    PaymentRead,
+    PaymentWrite,
 }
 impl ReadApi {
     fn scope(self) -> &'static str {
@@ -53,6 +57,8 @@ impl ReadApi {
             Self::IssuePix => "cob.write",
             Self::IssueBill => "boleto-cobranca.write",
             Self::Recurrence => "rec.read",
+            Self::PaymentRead => "pagamento-pix.read",
+            Self::PaymentWrite => "pagamento-pix.write",
         }
     }
 }
@@ -109,6 +115,8 @@ impl ClientInter {
             issue_pix_token: Mutex::new(None),
             issue_bill_token: Mutex::new(None),
             recurrence_token: Mutex::new(None),
+            payment_read_token: Mutex::new(None),
+            payment_write_token: Mutex::new(None),
             billing: Pacer::new(Duration::from_secs(6)),
             // A cadência conservadora também respeita as 10 consultas/min do sandbox.
             pix: Pacer::new(Duration::from_secs(6)),
@@ -190,6 +198,8 @@ impl ClientInter {
             ReadApi::IssuePix => &self.issue_pix_token,
             ReadApi::IssueBill => &self.issue_bill_token,
             ReadApi::Recurrence => &self.recurrence_token,
+            ReadApi::PaymentRead => &self.payment_read_token,
+            ReadApi::PaymentWrite => &self.payment_write_token,
         }
     }
     async fn bearer(&self, api: ReadApi) -> Result<Zeroizing<String>, BankError> {
@@ -239,7 +249,7 @@ impl ClientInter {
         for attempt in 0..2 {
             let token = self.bearer(api).await?;
             let pacer = match api {
-                ReadApi::Banking => &self.bank,
+                ReadApi::Banking | ReadApi::PaymentRead | ReadApi::PaymentWrite => &self.bank,
                 ReadApi::Pix | ReadApi::Received | ReadApi::IssuePix | ReadApi::Recurrence => {
                     &self.pix
                 }
@@ -272,6 +282,96 @@ impl ClientInter {
             return result.map(|(value, _)| value);
         }
         Err(BankError::Http(401))
+    }
+    pub(super) async fn submit_payment(
+        &self,
+        id: uuid::Uuid,
+        amount: i64,
+        key: &str,
+    ) -> Result<super::PaymentAccepted, BankError> {
+        use super::contract::pagamento_pix_contract::{Resposta, TipoRetorno, pagamento_por_chave};
+        let body = pagamento_por_chave(amount, key).ok_or(BankError::Contract)?;
+        let token = self.bearer(ReadApi::PaymentWrite).await?;
+        self.bank.wait().await;
+        // Um único POST. Inclusive HTTP 5xx pode ocorrer após o banco aceitar a ordem.
+        let mut response = self
+            .http
+            .post(format!("{}/banking/v2/pix", self.base))
+            .bearer_auth(token.as_str())
+            .header("x-conta-corrente", &self.account)
+            .header("x-id-idempotente", id.to_string())
+            .header("content-type", "application/json")
+            .body(serde_json::to_vec(&body).map_err(|_| BankError::Contract)?)
+            .send()
+            .await
+            .map_err(BankError::transport)?;
+        if response.status() != StatusCode::OK {
+            return Err(BankError::Http(response.status().as_u16()));
+        }
+        let mut bytes = Zeroizing::new(Vec::new());
+        while let Some(chunk) = response.chunk().await.map_err(BankError::transport)? {
+            if bytes.len() + chunk.len() > 65536 {
+                return Err(BankError::Contract);
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        let reply: Resposta = serde_json::from_slice(&bytes).map_err(|_| BankError::Contract)?;
+        if reply.codigo_solicitacao.is_nil() {
+            return Err(BankError::Contract);
+        }
+        Ok(super::PaymentAccepted {
+            reference: reply.codigo_solicitacao,
+            state: match reply.tipo_retorno {
+                TipoRetorno::Aprovacao => "AGUARDANDO_APROVACAO",
+                TipoRetorno::Processado => "PROCESSADO",
+                TipoRetorno::Agendado => "AGENDADO",
+            },
+        })
+    }
+    pub(super) async fn verify_payment_scopes(&self) -> Result<(), BankError> {
+        self.bearer(ReadApi::PaymentRead).await?;
+        self.bearer(ReadApi::PaymentWrite).await?;
+        Ok(())
+    }
+    pub(super) async fn payment_status(&self, id: uuid::Uuid) -> Result<String, BankError> {
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Response {
+            transacao_pix: Payment,
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Payment {
+            codigo_solicitacao: uuid::Uuid,
+            status: String,
+        }
+        let response: Response = self
+            .read(ReadApi::PaymentRead, &format!("/banking/v2/pix/{id}"), &[])
+            .await?;
+        if response.transacao_pix.codigo_solicitacao != id
+            || !matches!(
+                response.transacao_pix.status.as_str(),
+                "CRIADO"
+                    | "AGUARDANDO_APROVACAO"
+                    | "APROVADO"
+                    | "REPROVADO"
+                    | "EXPIRADO"
+                    | "CANCELADO"
+                    | "FALHA"
+                    | "AGENDADO"
+                    | "PAGO"
+                    | "ENVIADO"
+                    | "CANCELADO_SEM_SALDO"
+                    | "DEBITADO"
+                    | "PARCIALMENTE_DEBITADO"
+                    | "PARCIALMENTE_PAGO"
+                    | "NAO_DEBITADO"
+                    | "AGENDAMENTO_CANCELADO"
+            )
+        {
+            return Err(BankError::Contract);
+        }
+        Ok(response.transacao_pix.status)
     }
     pub(super) async fn submit_collection(
         &self,

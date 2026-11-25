@@ -36,6 +36,7 @@ pub enum Dashboard {
 
 #[derive(Serialize)]
 pub struct LiveDashboard {
+    pub payment_preparation: bool,
     pub pix_lookup_enabled: bool,
     pub source: &'static str,
     #[serde(with = "time::serde::rfc3339")]
@@ -61,10 +62,24 @@ pub struct StatementQuery {
 pub struct Statement {
     pub entries: Vec<Posted>,
     pub has_more: bool,
+    pub summary: StatementSummary,
+}
+#[derive(Serialize)]
+pub struct StatementSummary {
+    pub total_entries: i64,
+    pub incoming_cents: String,
+    pub outgoing_cents: String,
+    pub net_cents: String,
 }
 #[derive(Serialize)]
 pub struct Posted {
+    pub transaction_id: String,
     pub date: time::Date,
+    pub included_on: Option<time::Date>,
     pub kind: String,
+    pub operation: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub document_number: Option<String>,
     pub cents: String,
 }

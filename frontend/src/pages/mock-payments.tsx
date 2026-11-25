@@ -77,7 +77,7 @@ function apiMessage(error: Error, fallback: string) {
     : fallback;
 }
 
-function MfaPanel({ user, onExpired }: { user: Identity; onExpired: () => void }) {
+export function MfaPanel({ user, onExpired }: { user: Identity; onExpired: () => void }) {
   const cache = useQueryClient();
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -125,7 +125,7 @@ function MfaPanel({ user, onExpired }: { user: Identity; onExpired: () => void }
       ) : setupUri ? (
         <>
           <p>Escaneie com seu aplicativo autenticador. Este QR contém um segredo privado; não o compartilhe. O cadastro expira em 10 minutos.</p>
-          <QRCodeSVG value={setupUri} title="Cadastro TOTP do Inter PJ Manager" size={192} />
+            <QRCodeSVG value={setupUri} title="Cadastro TOTP do PJ Manager" size={192} />
           <form className="mock-payment-form" onSubmit={(event) => { event.preventDefault(); confirm.mutate(); }}>
             <label>Código de seis dígitos<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code} onChange={(event) => setCode(event.target.value)} required /></label>
             <Button type="submit" disabled={confirm.isPending}>{confirm.isPending ? "Confirmando…" : "Confirmar autenticador"}</Button>

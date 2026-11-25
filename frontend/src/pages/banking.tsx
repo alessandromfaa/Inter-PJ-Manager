@@ -6,9 +6,27 @@ const day = (value: string) => value.split("-").reverse().join("/");
 const moment = (value: string) =>
   new Date(value).toLocaleString("pt-BR", { timeZone: "America/Fortaleza" });
 type Statement = {
-  entries: { date: string; kind: string; cents: string }[];
+  entries: {
+    transaction_id: string;
+    date: string;
+    included_on: string | null;
+    kind: string;
+    operation: "C" | "D";
+    title: string | null;
+    description: string | null;
+    document_number: string | null;
+    cents: string;
+  }[];
   has_more: boolean;
+  summary: {
+    total_entries: number;
+    incoming_cents: string;
+    outgoing_cents: string;
+    net_cents: string;
+  };
 };
+const operationLabel = (operation: "C" | "D") =>
+  operation === "C" ? "Entrada" : "Saída";
 
 function StatementList({
   reading,
@@ -92,21 +110,53 @@ function StatementList({
         <p role="alert">{result.error.message}</p>
       ) : (
         <>
+          <div className="statement-summary" aria-label="Resumo do período">
+            <div>
+              <span>Movimentações</span>
+              <strong>{result.data.summary.total_entries}</strong>
+            </div>
+            <div className="positive">
+              <span>Entradas</span>
+              <strong>{brl(result.data.summary.incoming_cents)}</strong>
+            </div>
+            <div className="negative">
+              <span>Saídas</span>
+              <strong>{brl(result.data.summary.outgoing_cents)}</strong>
+            </div>
+            <div>
+              <span>Resultado líquido</span>
+              <strong>{brl(result.data.summary.net_cents)}</strong>
+            </div>
+          </div>
           <div className="scroll">
             <table>
               <thead>
                 <tr>
                   <th>Data</th>
-                  <th>Tipo</th>
+                  <th>Movimentação</th>
+                  <th>Descrição</th>
+                  <th>Documento</th>
                   <th>Valor</th>
                 </tr>
               </thead>
               <tbody>
                 {result.data.entries.map((entry, i) => (
-                  <tr key={i}>
+                  <tr key={entry.transaction_id || i}>
                     <td>{day(entry.date)}</td>
-                    <td>{entry.kind.replaceAll("_", " ")}</td>
-                    <td>{brl(entry.cents)}</td>
+                    <td>
+                      <span className={`statement-operation ${entry.operation === "C" ? "is-credit" : "is-debit"}`}>
+                        {operationLabel(entry.operation)}
+                      </span>
+                      <small>{entry.kind.replaceAll("_", " ")}</small>
+                    </td>
+                    <td>
+                      <strong>{entry.title || entry.description || "Sem descrição"}</strong>
+                      {entry.title && entry.description && <small>{entry.description}</small>}
+                    </td>
+                    <td>{entry.document_number || "—"}</td>
+                    <td className={entry.operation === "C" ? "money-positive" : "money-negative"}>
+                      {entry.operation === "C" ? "+" : "−"}{brl(entry.cents).replace(/^-/, "")}
+                    </td>
                   </tr>
                 ))}
               </tbody>

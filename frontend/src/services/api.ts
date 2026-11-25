@@ -123,6 +123,7 @@ export type Reading = {
   };
 };
 export type LiveSnapshot = {
+  payment_preparation?: boolean;
   pix_lookup_enabled: boolean;
   source: "SANDBOX" | "PRODUCTION";
   reading: Reading | null;

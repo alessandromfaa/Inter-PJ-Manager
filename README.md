@@ -1,10 +1,10 @@
-# Inter PJ Manager
+# PJ Manager
 
 Gestão financeira empresarial em português brasileiro. A primeira entrega oferece autenticação própria, painel e extrato de demonstração, auditoria por empresa e infraestrutura local. O ambiente inicial é **MOCK**. Os dados bancários são fictícios e as sessões e os eventos de acesso são persistidos no PostgreSQL.
 
 ## Iniciar do zero
 
-Use Linux com Git, OpenSSL, Docker Engine e Docker Compose v2, ou Podman com provedor Compose que suporte dependências por saúde e término bem-sucedido. A primeira compilação precisa de internet para baixar imagens e dependências. Execute na raiz do checkout, em ambiente de desenvolvimento autorizado.
+Use Linux com Git, OpenSSL, Docker Engine e Docker Compose v2. A primeira compilação precisa de internet para baixar imagens e dependências. Execute na raiz do checkout, em ambiente de desenvolvimento autorizado.
 
 ```sh
 cp .env.example .env
@@ -27,14 +27,7 @@ Neste checkout foram preparadas ferramentas portáteis em .tools. Para desenvolv
 
 Acesse **http://127.0.0.1:5173** com `admin@local.test`. A senha fica em `.tools/mock-local/admin`. O script mantém um cluster de desenvolvimento próprio, preserva os dados entre execuções e encerra seus processos ao receber Ctrl+C. Em um clone novo, essa alternativa requer Rust, Node.js, PostgreSQL com pg_config, OpenSSL e flock disponíveis. A instalação via Compose exige apenas as ferramentas da primeira seção.
 
-### Podman
-
-```sh
-ENGINE=podman ./infrastructure/scripts/iniciar.sh
-podman compose ps -a
-```
-
-O mesmo manifesto é usado pelos dois motores. Em sistemas com SELinux, configure o contexto dos arquivos montados conforme as regras locais. Use a mesma identidade e motor durante backup e restauração.
+Em sistemas com SELinux, configure o contexto dos arquivos montados conforme as regras locais. Use o mesmo ambiente Docker durante backup e restauração.
 
 Para instalar em outra estação com banco novo e posteriormente configurar as credenciais Inter existentes, consulte [Outra estação com banco novo](docs/inter.md#outra-estação-com-banco-novo).
 

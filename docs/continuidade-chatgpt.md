@@ -1,10 +1,10 @@
-# Inter PJ Manager — continuidade para o ChatGPT Web
+# PJ Manager — continuidade para o ChatGPT Web
 
 Atualizado em 24/11/2026. O proprietário quer uma plataforma financeira empresarial em pt-BR, inicialmente para uma empresa, com separação de usuários, contas e empresas. As Fases 1 e 2 foram implementadas e validadas localmente. A leitura de saldo e extrato já foi verificada na conta de produção autorizada. A Fase 3 começou pela consulta individual de cobrança Pix. O trabalho ocorre no repositório local inter, branch main. O ambiente SEFIN está fora do escopo autorizado. Publicação, mudanças em produção e operações financeiras reais dependem de autorização explícita.
 
 ## Fundação entregue
 
-Rust estável, Axum, Tokio e SQLx com PostgreSQL no backend. React com TypeScript strict, Vite, Tailwind, Button baseado em shadcn/ui, TanStack Query, React Hook Form, Zod e Recharts no frontend. Docker e Podman Compose, NGINX, health e readiness, migrações, inicialização e backup locais. Interface e instruções em português, dinheiro em centavos e apresentação de horários em America/Fortaleza.
+Rust estável, Axum, Tokio e SQLx com PostgreSQL no backend. React com TypeScript strict, Vite, Tailwind, Button baseado em shadcn/ui, TanStack Query, React Hook Form, Zod e Recharts no frontend. Docker Compose, NGINX, health e readiness, migrações, inicialização e backup locais. Interface e instruções em português, dinheiro em centavos e apresentação de horários em America/Fortaleza.
 
 O modo padrão MOCK oferece saldo, entradas, saídas, evolução, agenda, extrato pesquisável e auditoria. As sessões reais da aplicação usam Argon2id, cookie HttpOnly e SameSite, expiração, revogação, verificação de origem e limitação de tentativas. Os perfis são ADMIN, VIEWER, OPERATOR, APPROVER e AUDITOR. A empresa é resolvida pelo backend a partir da sessão. As escritas bancárias permanecem bloqueadas. A definição da licença do código próprio depende do proprietário.
 
@@ -15,7 +15,7 @@ O modo padrão MOCK oferece saldo, entradas, saídas, evolução, agenda, extrat
 | 4275fb8 | Compose, execução nativa, CI e backups |
 | 25fe097 | Documentação, contratos e aceite |
 
-A Fase 1 passou por build release, formatação, Clippy, três testes Rust, ESLint, dois testes Vitest, build do frontend e Playwright. O navegador validou login, navegação, extrato, tema, largura de 390 px e logout. Docker e Podman subiram em VM descartável local. O ensaio de restauração confirmou uma empresa e as duas migrações originais. Os detalhes estão em docs/validacao-fase-1.md. Para iniciar em MOCK no checkout preparado, execute ./infrastructure/scripts/mock-local.sh e abra http://127.0.0.1:5173. Para Compose, use ./infrastructure/scripts/iniciar.sh e a porta 8080. As senhas geradas ficam exclusivamente nos arquivos privados locais.
+A Fase 1 passou por build release, formatação, Clippy, três testes Rust, ESLint, dois testes Vitest, build do frontend e Playwright. O navegador validou login, navegação, extrato, tema, largura de 390 px e logout. Docker subiu em VM descartável local. O ensaio de restauração confirmou uma empresa e as duas migrações originais. Os detalhes estão em docs/validacao-fase-1.md. Para iniciar em MOCK no checkout preparado, execute ./infrastructure/scripts/mock-local.sh e abra http://127.0.0.1:5173. Para Compose, use ./infrastructure/scripts/iniciar.sh e a porta 8080. As senhas geradas ficam exclusivamente nos arquivos privados locais.
 
 ## Leitura bancária implementada no checkout
 
@@ -49,7 +49,7 @@ No ChatGPT Web, use este arquivo como contexto. O código-fonte e as alteraçõe
 
 **Texto para iniciar a conversa no ChatGPT Web**
 
-> Use este documento como contexto do Inter PJ Manager. Responda em português brasileiro. Comece pelo estado de validação ao final do arquivo. Preserve a restrição de não alterar o ambiente SEFIN, o padrão MOCK, a segregação por empresa e o bloqueio de escritas bancárias. Para homologação, peça somente resultados sanitizados. Para implementar alterações, verifique o estado do repositório correspondente. Retome a partir das pendências registradas.
+> Use este documento como contexto do PJ Manager. Responda em português brasileiro. Comece pelo estado de validação ao final do arquivo. Preserve a restrição de não alterar o ambiente SEFIN, o padrão MOCK, a segregação por empresa e o bloqueio de escritas bancárias. Para homologação, peça somente resultados sanitizados. Para implementar alterações, verifique o estado do repositório correspondente. Retome a partir das pendências registradas.
 
 ## Estado de validação na entrega da Fase 2
 

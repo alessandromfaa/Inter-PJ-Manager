@@ -34,7 +34,7 @@ export function Login({
       <section className="intro">
         <Brand />
         <div>
-          <span className="eyebrow">GESTÃO FINANCEIRA EMPRESARIAL</span>
+          <span className="eyebrow">GESTÃO FINANCEIRA · BRILHE MÓVEIS</span>
           <h1>
             Finanças da
             <br />
@@ -57,7 +57,7 @@ export function Login({
             ))}
           </svg>
         </div>
-        <small>Plataforma independente · Inter PJ Manager</small>
+        <small>Plataforma financeira · Brilhe Móveis</small>
       </section>
       <section className="login">
         <span className="badge">{environmentLabel(mode)}</span>

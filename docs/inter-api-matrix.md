@@ -28,6 +28,8 @@ Consulta documental em 23/11/2026. OAuth, saldo e extrato completo possuem adapt
 | `GET /banking/v2/extrato/exportar` | extrato.read | 10 | 10 | 200, 400, 403, 404, 503 |
 | `GET /banking/v2/extrato/completo` | extrato.read | 10 | 10 | 200, 400, 403, 404, 503 |
 | `GET /banking/v2/saldo` | extrato.read | 10 | 10 | 200, 400, 403, 404, 503 |
+
+O adapter implementado persiste no ledger local o id, a data de inclusão, a operação, o título, a descrição e o número do documento do extrato completo. O campo `detalhes`, que pode conter dados de terceiros, não é importado.
 | `POST /banking/v2/pagamento` | pagamento-boleto.write | 120 | 10 | 200, 400, 401, 403, 404, 406, 409 |
 | `GET /banking/v2/pagamento` | pagamento-boleto.read | 120 | 10 | 200, 400, 500 |
 | `POST /banking/v2/pagamento/darf` | pagamento-darf.write | 10 | 10 | 200, 400, 401, 403, 404, 500 |
@@ -37,13 +39,21 @@ Consulta documental em 23/11/2026. OAuth, saldo e extrato completo possuem adapt
 | `DELETE /banking/v2/pagamento/{codigoTransacao}` | pagamento-boleto.write | 20 | 10 | 204, 404, 422, 500 |
 | `POST /banking/v2/pix` | pagamento-pix.write | 60 | 10 | 200, 400, 401, 403, 404, 422, 500 |
 | `GET /banking/v2/pix/{codigoSolicitacao}` | pagamento-pix.read | 20 | 10 | 200, 400, 401, 403, 404, 422, 500 |
+
 | `PUT /banking/v2/webhooks/{tipoWebhook}` | webhook-banking.write | 10 | 10 | 204, 400, 503 |
 | `GET /banking/v2/webhooks/{tipoWebhook}` | webhook-banking.read | 10 | 10 | 200, 404, 500 |
 | `DELETE /banking/v2/webhooks/{tipoWebhook}` | webhook-banking.write | 10 | 10 | 204, 404, 500 |
 | `GET /banking/v2/webhooks/{tipoWebhook}/callbacks` | webhook-banking.read | 10 | 10 | 200, 400, 500 |
 | `POST /banking/v2/webhooks/{tipoWebhook}/callbacks/retry` | webhook-banking.write | 5 | — | 200, 400, 403, 404, 500 |
 
+### Pagamentos Pix por chave
+
+O piloto serializa R$ 0,01 como número decimal exato. Cada intenção tem um UUID persistido antes do envio, usado no cabeçalho `x-id-idempotente`. A aplicação faz uma tentativa de inclusão com `pagamento-pix.write`. Interpreta `APROVACAO`, `PROCESSADO` e `AGENDADO` como estados distintos. A consulta por `codigoSolicitacao` usa `pagamento-pix.read`, valida o identificador e conserva o status recebido. Somente `PAGO` indica pagamento integral na tela.
+
+Se a resposta se perder, a intenção fica bloqueada para novo envio. Sem o código de solicitação, a conferência depende do extrato e do Internet Banking. A duração da deduplicação do Inter e a recuperação operacional desse caso seguem para homologação.
+
 ## Pix recebimentos
+
 
 Revisão de 24/11/2026 para a consulta individual de cobrança imediata. O OpenAPI da API Pix V2 confirma `GET /cob/{txid}` sob a base `/pix/v2` nos dois ambientes, token OAuth/mTLS com `cob.read` e seleção da conta por `x-conta-corrente`. O identificador aceita 26 a 35 caracteres alfanuméricos ASCII. A consulta retorna um objeto `CobCompleta`, sem paginação. O recorte inicial utiliza identificador, revisão, situação e valor original. O valor nominal e o estado da cobrança têm finalidade de consulta. A conciliação de recebimentos requer verificar os Pix efetivamente recebidos. Cotas e códigos HTTP constam na tabela abaixo. Adaptador e painel implementados, com cache por escopo e cadência conservadora de até 10 consultas por minuto por instância. Testes com servidor local cobrem divergência de txid, escopo, valor, estado e 404. Validação externa específica desta operação pendente.
 

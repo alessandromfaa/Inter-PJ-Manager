@@ -70,7 +70,7 @@ O recebimento fica em processamento até o worker consultar novamente a fonte e 
 | POST /api/mfa/confirmar | Usuário autenticado; confirma o cadastro com código TOTP vigente. |
 | POST /api/mfa/desativar | Usuário autenticado; exige senha atual e código TOTP. |
 
-O segredo TOTP é cifrado com XChaCha20-Poly1305 pela chave de 32 bytes em `MFA_ENCRYPTION_KEY_FILE`. Códigos têm janela de 30 segundos, tolerância de um passo, bloqueio após cinco falhas por 15 minutos e contador persistido contra replay. Preserve a chave em backup protegido separado do banco; perdê-la impede validar os segredos cadastrados. MFA e aprovação nesta aplicação estão disponíveis somente em MOCK.
+O segredo TOTP é cifrado com XChaCha20-Poly1305 pela chave de 32 bytes em `MFA_ENCRYPTION_KEY_FILE`. Códigos têm janela de 30 segundos, tolerância de um passo, bloqueio após cinco falhas por 15 minutos e contador persistido contra replay. Preserve a chave em backup protegido separado do banco. No piloto Pix ela também protege a derivação das chaves de cifragem de destinatários. O cadastro MFA fica disponível em MOCK e para operadores e aprovadores da conta vinculada quando a preparação Pix está habilitada.
 
 ## Preparação de pagamentos Pix em MOCK — Fase 4.1
 
@@ -125,3 +125,9 @@ Escopo funcional do MOCK: um valor fixo por recorrência; competências são lan
 
 
 O relatório financeiro CSV MOCK aceita até 10.000 linhas por exportação; se o limite for excedido, retorna 413 e o período deve ser reduzido. Campos com prefixos interpretáveis como fórmulas por planilhas recebem apóstrofo preventivo.
+
+## Pagamentos Pix por chave no piloto
+
+Em SANDBOX ou PRODUCTION, `ENABLE_PIX_PAYMENT_PREPARATION=true` habilita a preparação para usuários da empresa e conta vinculadas. `GET /api/pagamentos/pix` lista as últimas 100 intenções. O POST nessa rota recebe `idempotencia` (UUID), `chave` e `valor_centavos` (string `1`) do operador ou administrador. O destinatário fica cifrado no banco.
+
+O segundo usuário, ADMIN ou APPROVER, revisa chave e valor e confirma em `POST /api/pagamentos/pix/aprovar` com `id`, `chave`, `valor_centavos` e `codigo_mfa`. A aprovação local antecede o envio. A inclusão bancária exige o autor original, nova confirmação TOTP e a rota `POST /api/pagamentos/pix/enviar`, registrada somente com preparação, escrita bancária e pagamentos habilitados explicitamente. O POST em `/api/pagamentos/pix/consultar` recebe o id local e consulta a referência associada à intenção daquela empresa e conta. O comando `manager verificar-acesso-pix` verifica OAuth para os dois escopos.

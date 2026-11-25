@@ -2,6 +2,16 @@
 
 Atualizado em 25/11/2026. Este documento registra decisões duradouras confirmadas no checkout. O estado de execução mais recente fica em [SESSION_HANDOFF.md](SESSION_HANDOFF.md). As instruções vigentes continuam em `AGENTS.md` e no wrapper `cx`.
 
+## Instalação da outra estação — 25/11/2026
+
+- Docker Engine/Moby 29.9.3 e Docker Compose 5.7.1 foram instalados no Fedora 44 e o serviço Docker foi habilitado.
+- Componentes e diretórios locais do motor anterior foram removidos. O projeto e a documentação passaram a mencionar somente Docker.
+- A instalação nova foi inicializada em MOCK com empresa e administrador novos. O banco usa volume Docker novo; a senha inicial e os segredos permanecem somente em arquivos locais protegidos.
+- A pilha está ativa em `http://127.0.0.1:8080`; `/ready`, página, login inicial e `/api/session` retornaram HTTP 200. Nenhum arquivo da integração Inter foi transferido e nenhuma consulta bancária real foi feita.
+- Após autorização em 25/11/2026, a instalação foi preparada para `APP_ENV=production`, `INTER_ENV=production` e leitura bancária habilitada, com escritas/pagamentos falsos. As credenciais mTLS foram transferidas por SSH verificado; o proxy local HTTPS usa `https://127.0.0.1:8443` e a porta HTTP direta foi fechada.
+- A verificação autorizada de saldo ao Inter excedeu o timeout; não houve valor retornado nem transação. Login, sessão e prontidão locais por HTTPS passaram.
+- Reteste posterior: handshake mTLS e OAuth `extrato.read` passaram; uma sincronização autorizada pelo endpoint da aplicação retornou 204, job `CONCLUIDO` e leitura persistida. O timeout anterior foi transitório.
+
 ## Arquitetura e decisões confirmadas
 
 - Backend Rust com Axum/Tokio, SQLx/PostgreSQL, domínio e adaptadores bancários separados. Frontend React/TypeScript usa Vite, TanStack Query e interface em pt-BR. Compose mantém PostgreSQL, bootstrap, API e NGINX em serviços separados, com healthchecks e containers restritos.
@@ -57,10 +67,19 @@ Atualizado em 25/11/2026. Este documento registra decisões duradouras confirmad
 
 ## Decisões do proprietário
 
+O piloto de pagamento Pix por chave limita cada intenção a R$ 0,01. Preparação e aprovação local podem ficar disponíveis antes de habilitar transmissão. O autor e o aprovador são pessoas distintas da mesma empresa. A implantação local está em preparação, com a migration 0013 aplicada. Pendências da integração e verificação OAuth constam do handoff.
+
+## Extrato detalhado — 25/11/2026
+
+- O adapter do Inter agora preserva id, data de inclusão, operação, título, descrição e documento do extrato completo; o campo `detalhes` não é importado para evitar dados de terceiros.
+- A API interna de extrato passou a devolver resumo exato do período e a tela mostra entradas, saídas, resultado líquido e metadados dos lançamentos.
+- A migration `0012_extrato_detalhado.sql` é aditiva e foi validada no build Docker.
+- Após autorização, a migration foi renumerada para `0012_extrato_detalhado.sql` e aplicada na produção local. A consulta Pix de leitura foi habilitada (`ENABLE_PIX_CHARGE_READS=true`); pagamentos e escritas bancárias continuam bloqueados.
+
 - A outra estação terá banco e instalação novos e usará os arquivos da integração bancária existente por transferência privada. Usuários, histórico, sessões e UUIDs locais são novos; credenciais e chaves nunca entram no Git. A ativação de leitura de produção depende de HTTPS e autorização no destino.
 
 - O trabalho ocorre no checkout local. SEFIN está fora do escopo.
-- A identidade visual da empresa e a personalização com a logo devem ficar para a etapa final de implantação.
+- A identidade visual aplicada ao frontend usa a logo e a paleta da Brilhe Móveis; o nome exibido do produto é `PJ Manager`. A personalização pode ser refinada sem alterar o bloqueio de operações reais.
 - Nenhuma operação financeira real foi autorizada. Produção deve continuar somente leitura até nova autorização específica.
 - Direcionamento atualizado em 25/11/2026: implementar as fases do projeto antes da bateria final de testes e refinamentos. Testes de integração, PostgreSQL, contratos, Playwright e validação completa devem ficar agrupados ao encerramento; até então, não declarar aceite final.
 - Nenhuma operação financeira real foi autorizada. Aprovação MOCK pode ser construída com controles apropriados; envio externo permanece bloqueado sem autorização específica e homologação.

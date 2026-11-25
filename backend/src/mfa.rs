@@ -44,7 +44,7 @@ fn cipher(key: &[u8; 32]) -> Result<XChaCha20Poly1305> {
     XChaCha20Poly1305::new_from_slice(key).map_err(|_| Error::Internal)
 }
 
-fn encrypt(key: &[u8; 32], value: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn encrypt(key: &[u8; 32], value: &[u8]) -> Result<Vec<u8>> {
     let mut nonce = [0_u8; 24];
     OsRng.fill_bytes(&mut nonce);
     let encrypted = cipher(key)?
@@ -55,7 +55,7 @@ fn encrypt(key: &[u8; 32], value: &[u8]) -> Result<Vec<u8>> {
     Ok(output)
 }
 
-fn decrypt(key: &[u8; 32], value: &[u8]) -> Result<Vec<u8>> {
+pub(crate) fn decrypt(key: &[u8; 32], value: &[u8]) -> Result<Vec<u8>> {
     let (nonce, encrypted) = value.split_at_checked(24).ok_or(Error::Internal)?;
     cipher(key)?
         .decrypt(XNonce::from_slice(nonce), encrypted)
@@ -76,10 +76,25 @@ fn totp(secret: &[u8], email: &str) -> Result<Totp> {
 }
 
 async fn identity(app: &App, headers: &HeaderMap) -> Result<auth::Identity> {
-    if app.bank.environment() != "MOCK" {
+    if app.bank.environment() != "MOCK"
+        && !crate::config::payment_preparation(app.bank.environment())
+    {
         return Err(Error::Missing);
     }
-    auth::identity(app, headers).await
+    let user = auth::identity(app, headers).await?;
+    if app.bank.environment() != "MOCK"
+        && (app
+            .bank
+            .collection_binding()
+            .is_none_or(|(company, _)| company != user.company_id)
+            || !user
+                .roles
+                .iter()
+                .any(|r| matches!(r.as_str(), "ADMIN" | "APPROVER" | "OPERATOR")))
+    {
+        return Err(Error::Forbidden);
+    }
+    Ok(user)
 }
 
 async fn check_password(app: &App, user: Uuid, password: String) -> Result<()> {

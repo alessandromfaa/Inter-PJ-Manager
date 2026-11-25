@@ -83,7 +83,11 @@ pub struct Page {
 pub struct Transaction {
     pub id_transacao: String,
     pub data_transacao: Date,
+    pub data_inclusao: Option<Date>,
     pub tipo_transacao: String,
+    pub titulo: Option<String>,
+    pub descricao: Option<String>,
+    pub numero_documento: Option<String>,
     tipo_operacao: Direction,
     valor: String,
 }
@@ -93,6 +97,13 @@ enum Direction {
     D,
 }
 impl Transaction {
+    pub fn operation(&self) -> &'static str {
+        match self.tipo_operacao {
+            Direction::C => "C",
+            Direction::D => "D",
+        }
+    }
+
     pub fn signed_cents(&self) -> Result<i64, BankError> {
         let amount = cents(&self.valor)?;
         match self.tipo_operacao {
@@ -103,6 +114,86 @@ impl Transaction {
                 .ok_or(BankError::Contract),
             _ => Err(BankError::Contract),
         }
+    }
+}
+
+pub(crate) mod pagamento_pix_contract {
+    use serde::{Deserialize, Serialize};
+    use serde_json::Number;
+    use std::str::FromStr;
+    use uuid::Uuid;
+
+    #[derive(Serialize)]
+    struct Destinatario<'a> {
+        tipo: &'static str,
+        chave: &'a str,
+    }
+
+    #[derive(Serialize)]
+    pub(crate) struct Requisicao<'a> {
+        valor: Number,
+        destinatario: Destinatario<'a>,
+    }
+
+    pub(crate) fn pagamento_por_chave(centavos: i64, chave: &str) -> Option<Requisicao<'_>> {
+        if centavos <= 0
+            || chave.is_empty()
+            || chave.len() > 77
+            || chave.chars().any(|c| c.is_control() || c.is_whitespace())
+        {
+            return None;
+        }
+        let valor = Number::from_str(&format!("{}.{:02}", centavos / 100, centavos % 100)).ok()?;
+        Some(Requisicao {
+            valor,
+            destinatario: Destinatario {
+                tipo: "CHAVE",
+                chave,
+            },
+        })
+    }
+
+    #[derive(Debug, Deserialize, PartialEq)]
+    #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+    pub(crate) enum TipoRetorno {
+        Aprovacao,
+        Processado,
+        Agendado,
+    }
+
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub(crate) struct Resposta {
+        pub(crate) tipo_retorno: TipoRetorno,
+        pub(crate) codigo_solicitacao: Uuid,
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn valor_e_serializado_sem_ponto_flutuante() {
+        let pagamento = pagamento_por_chave(9_007_199_254_740_993, "chave-ficticia").unwrap();
+        let json = serde_json::to_string(&pagamento).unwrap();
+        assert!(json.contains("\"valor\":90071992547409.93"));
+        assert!(pagamento_por_chave(0, "chave").is_none());
+        assert!(pagamento_por_chave(1, " ").is_none());
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn resultado_de_inclusao_preserva_estados_distintos() {
+        for (valor, esperado) in [
+            ("APROVACAO", TipoRetorno::Aprovacao),
+            ("PROCESSADO", TipoRetorno::Processado),
+            ("AGENDADO", TipoRetorno::Agendado),
+        ] {
+            let json = format!(
+                r#"{{"tipoRetorno":"{valor}","codigoSolicitacao":"c42f0787-02cb-4b31-827e-459ec9d7ece1"}}"#
+            );
+            let resposta: Resposta = serde_json::from_str(&json).unwrap();
+            assert_eq!(resposta.tipo_retorno, esperado);
+            assert!(!resposta.codigo_solicitacao.is_nil());
+        }
+        assert!(serde_json::from_str::<Resposta>(r#"{"tipoRetorno":"PAGO","codigoSolicitacao":"c42f0787-02cb-4b31-827e-459ec9d7ece1"}"#).is_err());
     }
 }
 

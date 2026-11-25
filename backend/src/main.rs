@@ -6,6 +6,7 @@ mod domain;
 mod financeiro;
 mod mfa;
 mod pagamentos;
+mod pagamentos_inter;
 mod pix_automatico;
 mod recebimentos;
 mod infrastructure {
@@ -170,6 +171,9 @@ async fn main() -> Result<()> {
         Some("verificar-acesso-extrato") => {
             return infrastructure::banking::inter::verify_statement_access().await;
         }
+        Some("verificar-acesso-pix") => {
+            return infrastructure::banking::inter::verify_payment_access().await;
+        }
         _ => {}
     }
     let mut options = PgConnectOptions::from_str(&env::var("DATABASE_URL")?)
@@ -230,6 +234,24 @@ async fn main() -> Result<()> {
 
 fn router(app: App) -> Router {
     let mut routes = Router::new();
+    if config::payment_preparation(app.bank.environment()) {
+        routes = routes
+            .route(
+                "/api/pagamentos/pix",
+                get(pagamentos_inter::list).post(pagamentos_inter::prepare),
+            )
+            .route(
+                "/api/pagamentos/pix/aprovar",
+                post(pagamentos_inter::approve),
+            )
+            .route(
+                "/api/pagamentos/pix/consultar",
+                post(pagamentos_inter::reconcile),
+            );
+        if config::payment_send_enabled(app.bank.environment()) {
+            routes = routes.route("/api/pagamentos/pix/enviar", post(pagamentos_inter::send));
+        }
+    }
     if app.bank.environment() == "SANDBOX" {
         routes = routes.route(
             "/api/sandbox/pix-automatico/consultar",
