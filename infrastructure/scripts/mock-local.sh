@@ -27,7 +27,8 @@ export APP_HOST=127.0.0.1 APP_PORT=8080 APP_ORIGIN=http://127.0.0.1:5173
 export APP_ENV=development BANK_PROVIDER=inter INTER_ENV=mock ENABLE_BANK_WRITES=false ENABLE_REAL_PAYMENTS=false
 export DATABASE_URL=postgresql://manager@127.0.0.1:55487/postgres
 export ADMIN_EMAIL=admin@local.test ADMIN_PASSWORD_FILE="$state/admin" DB_PASSWORD_FILE="$state/db"
-for secret in "$ADMIN_PASSWORD_FILE" "$DB_PASSWORD_FILE"; do
+export MFA_ENCRYPTION_KEY_FILE="$state/mfa_key"
+for secret in "$ADMIN_PASSWORD_FILE" "$DB_PASSWORD_FILE" "$MFA_ENCRYPTION_KEY_FILE"; do
   if [[ ! -e "$secret" ]]; then openssl rand -hex 32 > "$secret"; fi
 done
 if [[ ! -e "$state/pg/PG_VERSION" ]]; then

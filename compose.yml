@@ -7,9 +7,10 @@ x-api: &api
     APP_HOST: 0.0.0.0
     APP_PORT: 8080
     APP_ENV: ${APP_ENV:-development}
-    APP_ORIGIN: ${APP_ORIGIN:-http://127.0.0.1:8080}
+    APP_ORIGIN: ${APP_ORIGIN:-http://172.17.154.31:8080}
     DATABASE_URL: postgresql://manager@db:5432/manager
     DB_PASSWORD_FILE: /run/secrets/db_app
+    MFA_ENCRYPTION_KEY_FILE: /run/secrets/mfa_key
     BANK_PROVIDER: ${BANK_PROVIDER:-inter}
     INTER_ENV: ${INTER_ENV:-mock}
     ENABLE_REAL_PAYMENTS: ${ENABLE_REAL_PAYMENTS:-false}
@@ -18,7 +19,7 @@ x-api: &api
   read_only: true
   cap_drop: [ALL]
   security_opt: [no-new-privileges:true]
-  secrets: [db_app]
+  secrets: [db_app, mfa_key]
   networks: [private]
 services:
   db:
@@ -58,7 +59,7 @@ services:
       retries: 15
   web:
     build: ./frontend
-    ports: ["127.0.0.1:${APP_PORT:-8080}:8080"]
+    ports: ["172.17.154.31:${APP_PORT:-8080}:8080"]
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -80,3 +81,4 @@ secrets:
   db_app: {file: ./secrets/db_app}
   db_root: {file: ./secrets/db_root}
   admin: {file: ./secrets/admin}
+  mfa_key: {file: ./secrets/mfa_key}

@@ -11,7 +11,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Serialize;
-use sqlx_core::{query::query, row::Row};
+use sqlx_core::{query::query, query_scalar::query_scalar, row::Row};
 use uuid::Uuid;
 pub enum Error {
     Conflict,
@@ -107,6 +107,28 @@ pub async fn guard(State(app): State<App>, req: Request, next: Next) -> Response
 pub async fn ready(State(a): State<App>) -> Result<&'static str> {
     query("SELECT 1").execute(&a.db).await?;
     Ok("ok")
+}
+
+pub async fn metrics(
+    State(a): State<App>,
+    headers: HeaderMap,
+) -> Result<impl axum::response::IntoResponse> {
+    let user = auth::identity(&a, &headers).await?;
+    if !user.roles.iter().any(|role| role == "ADMIN") {
+        return Err(Error::Forbidden);
+    }
+    query_scalar::<_, i32>("SELECT 1").fetch_one(&a.db).await?;
+    let body = format!(
+        "inter_pj_manager_ready 1\ninter_pj_manager_mock_mode {}\n",
+        if a.bank.environment() == "MOCK" { 1 } else { 0 }
+    );
+    Ok((
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
+        body,
+    ))
 }
 pub async fn session(State(a): State<App>, h: HeaderMap) -> Result<Json<auth::Identity>> {
     Ok(Json(auth::identity(&a, &h).await?))

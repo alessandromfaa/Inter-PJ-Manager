@@ -4,6 +4,7 @@
 |---|---|---|
 | GET /health | Sonda interna da API | Texto ok enquanto o processo atende |
 | GET /ready | Sonda | 200 após consulta ao PostgreSQL ou 503 |
+| GET /metrics | ADMIN autenticado. Métricas operacionais agregadas sem dados financeiros ou identificadores de empresa |
 | POST /api/login | Origem autorizada | JSON com email e password; 200 e cookie em caso de sucesso |
 | GET /api/session | Autenticado | id, company_id, company, email e roles da sessão |
 | POST /api/logout | Cookie e origem autorizada | 200, expiração do cookie e revogação no servidor |
@@ -60,6 +61,17 @@ A tela salva o UUID e o valor fictício da intenção na sessão da aba, com cha
 
 O recebimento fica em processamento até o worker consultar novamente a fonte e gravar a confirmação. A chave única do evento evita repetir o mesmo efeito. Uma confirmação informa `CONCILIADO`, `PENDENTE` ou `DIVERGENTE`; solicitação aceita e liquidação são estados distintos.
 
+## MFA TOTP e aprovação Pix em MOCK — Fase 4
+
+| Rota | Permissão e resultado |
+|---|---|
+| GET /api/mfa | Usuário autenticado; informa se o próprio usuário habilitou TOTP. |
+| POST /api/mfa/iniciar | Usuário autenticado; exige senha atual, retorna URI otpauth para cadastro e inicia janela de 10 minutos. |
+| POST /api/mfa/confirmar | Usuário autenticado; confirma o cadastro com código TOTP vigente. |
+| POST /api/mfa/desativar | Usuário autenticado; exige senha atual e código TOTP. |
+
+O segredo TOTP é cifrado com XChaCha20-Poly1305 pela chave de 32 bytes em `MFA_ENCRYPTION_KEY_FILE`. Códigos têm janela de 30 segundos, tolerância de um passo, bloqueio após cinco falhas por 15 minutos e contador persistido contra replay. Preserve a chave em backup protegido separado do banco; perdê-la impede validar os segredos cadastrados. MFA e aprovação nesta aplicação estão disponíveis somente em MOCK.
+
 ## Preparação de pagamentos Pix em MOCK — Fase 4.1
 
 Estas rotas existem somente quando `INTER_ENV=mock` e não enviam dinheiro:
@@ -70,4 +82,25 @@ Estas rotas existem somente quando `INTER_ENV=mock` e não enviam dinheiro:
 | POST /api/mock/pagamentos/pix | ADMIN ou OPERATOR. Cria um rascunho idempotente por empresa, autor e `intent_id`; valor em centavos exatos. |
 | POST /api/mock/pagamentos/pix/revisar | ADMIN ou OPERATOR, somente o autor. Confirma destinatário e valor persistidos e muda `RASCUNHO` para `EM_REVISAO`. |
 
-Não há rota de aprovação, autorização MFA ou execução bancária nesta fatia. Repetições idênticas retornam a mesma intenção; divergências resultam em conflito. Auditoria e mudança de estado são gravadas na mesma transação.
+Repetições idênticas retornam a mesma intenção; divergências resultam em conflito. Auditoria e mudança de estado são gravadas na mesma transação.
+
+A rota POST `/api/mock/pagamentos/pix/aprovar` exige usuário distinto do autor, perfil `APPROVER` ou `ADMIN`, intenção revisada, valor de 1 centavo a R$ 100.000,00, código TOTP e chave idempotente UUID. O estado `APROVADO_MOCK` não dispara operação bancária. Repetição com mesmo aprovador e chave retorna sucesso sem consumir outro TOTP; chave reutilizada ou decisão divergente conflita. A decisão, consumo do código e auditoria são transacionais.
+
+## Contas demonstrativas em MOCK — Fase 5
+
+| Rota | Permissão e resultado |
+|---|---|
+| GET /api/mock/financeiro | Lista até 200 contas da empresa da sessão. |
+| GET /api/mock/financeiro/relatorio.csv?inicio=AAAA-MM-DD&fim=AAAA-MM-DD | Exporta contas do período, até 366 dias, sempre limitadas à empresa da sessão. |
+| POST /api/mock/financeiro | ADMIN ou OPERATOR. Cria conta a pagar/receber com valor em centavos, parte, descrição e vencimento. |
+| POST /api/mock/financeiro/alterar | ADMIN ou OPERATOR. Liquida ou cancela somente item aberto da empresa. |
+| GET /api/mock/financeiro/lembretes | Lista lembretes da empresa da sessão. |
+| POST /api/mock/financeiro/lembretes | ADMIN ou OPERATOR. Registra, de forma idempotente, lembretes locais para itens em aberto com vencimento de hoje até os próximos sete dias. |
+| GET /api/mock/financeiro/recorrencias | Lista regras recorrentes MOCK da empresa da sessão. |
+| POST /api/mock/financeiro/recorrencias | ADMIN ou OPERATOR. Cria regra recorrente local de pagar/receber com dia do mês e classificação opcional. |
+| POST /api/mock/financeiro/recorrencias/gerar | ADMIN ou OPERATOR. Gera lançamentos de um mês/ano escolhido, ajusta dia 29–31 ao último dia do mês e é idempotente por regra e competência. A geração é manual e auditada. |
+| POST /api/mock/financeiro/recorrencias/alterar | ADMIN ou OPERATOR. Ativa ou pausa uma regra recorrente da empresa; não altera ocorrências já geradas. |
+| GET/POST /api/mock/categorias | Lista ou cria categoria MOCK da empresa. |
+| GET/POST /api/mock/centros-custo | Lista ou cria centro de custo MOCK da empresa. |
+
+Os registros são demonstrativos e não alteram saldo bancário nem enviam pagamentos. Cada alteração é auditada na mesma transação.

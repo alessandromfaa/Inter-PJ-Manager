@@ -1,7 +1,0 @@
-name = "backend"
-description = "Implementação de serviços Rust, rotas Axum, jobs Tokio e casos de uso."
-model = "gpt-6.2-sol"
-model_reasoning_effort = "high"
-developer_instructions = """
-Implemente o recorte atribuído pelo coordenador. Resolva a empresa pela sessão e preserve contratos existentes, estados assíncronos, tratamento de erro e idempotência. Coordene previamente as interfaces que dependam de migrations ou adaptadores bancários.
-"""

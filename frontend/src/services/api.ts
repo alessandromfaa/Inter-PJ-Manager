@@ -63,6 +63,21 @@ export async function api<T>(
   }
   return JSON.parse(body) as T;
 }
+
+export async function downloadText(path: string, filename: string) {
+  const response = await fetch("/api/" + path, { cache: "no-store" });
+  if (!response.ok) {
+    const body = await response.json().catch(() => null);
+    throw new ApiError(response.status, typeof body === "string" ? body : "Falha ao exportar relatório.");
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(url);
+}
 const currency = new Intl.NumberFormat("pt-BR", {
   style: "currency",
   currency: "BRL",

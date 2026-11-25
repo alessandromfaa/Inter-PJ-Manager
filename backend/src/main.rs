@@ -3,6 +3,8 @@ mod application;
 mod auth;
 mod config;
 mod domain;
+mod financeiro;
+mod mfa;
 mod pagamentos;
 mod recebimentos;
 mod infrastructure {
@@ -36,6 +38,7 @@ struct App {
     dummy: Arc<String>,
     workers: Arc<Semaphore>,
     bank: Arc<dyn BankProvider>,
+    mfa_key: Arc<[u8; 32]>,
 }
 fn hash(password: &str) -> Result<String> {
     Argon2::default()
@@ -48,6 +51,13 @@ fn secret(path: &str) -> Result<String> {
         .context("Falha ao ler arquivo de segredo")?
         .trim_end_matches(['\r', '\n'])
         .into())
+}
+fn encryption_key(path: &str) -> Result<[u8; 32]> {
+    let encoded = secret(path)?;
+    let decoded = hex::decode(encoded).context("Chave de MFA inválida")?;
+    decoded
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("Chave de MFA deve conter 32 bytes"))
 }
 async fn provision(db: &PgPool, bootstrap: bool) -> Result<()> {
     let email = env::var(if bootstrap {
@@ -189,6 +199,7 @@ async fn main() -> Result<()> {
         dummy: Arc::new(hash(&Uuid::new_v4().to_string())?),
         workers: Arc::new(Semaphore::new(4)),
         bank,
+        mfa_key: Arc::new(encryption_key(&env::var("MFA_ENCRYPTION_KEY_FILE")?)?),
     };
     if env::args().nth(1).as_deref() == Some("receber-webhooks") {
         return recebimentos::webhook::serve(app).await;
@@ -219,10 +230,47 @@ fn router(app: App) -> Router {
     if app.bank.environment() == "MOCK" {
         routes = routes
             .route(
+                "/api/mock/financeiro",
+                get(financeiro::list).post(financeiro::create),
+            )
+            .route(
+                "/api/mock/financeiro/relatorio.csv",
+                get(financeiro::report_csv),
+            )
+            .route(
+                "/api/mock/financeiro/recorrencias",
+                get(financeiro::list_recurring).post(financeiro::create_recurring),
+            )
+            .route(
+                "/api/mock/financeiro/recorrencias/gerar",
+                post(financeiro::generate_recurring),
+            )
+            .route(
+                "/api/mock/financeiro/recorrencias/alterar",
+                post(financeiro::change_recurring),
+            )
+            .route(
+                "/api/mock/categorias",
+                get(financeiro::categories).post(financeiro::create_category),
+            )
+            .route(
+                "/api/mock/centros-custo",
+                get(financeiro::cost_centers).post(financeiro::create_cost_center),
+            )
+            .route("/api/mock/financeiro/alterar", post(financeiro::change))
+            .route(
+                "/api/mock/financeiro/lembretes",
+                get(financeiro::list_reminders).post(financeiro::reminders),
+            )
+            .route(
                 "/api/mock/pagamentos/pix",
                 get(pagamentos::list).post(pagamentos::create),
             )
             .route("/api/mock/pagamentos/pix/revisar", post(pagamentos::review))
+            .route(
+                "/api/mock/pagamentos/pix/aprovar",
+                post(pagamentos::approve),
+            )
             .route("/api/mock/pix/cobrancas", post(api::issue_mock_pix))
             .route(
                 "/api/mock/recebimentos/pix",
@@ -243,7 +291,12 @@ fn router(app: App) -> Router {
         )
         .route("/health", get(|| async { "ok" }))
         .route("/ready", get(api::ready))
+        .route("/metrics", get(api::metrics))
         .route("/api/login", post(auth::login))
+        .route("/api/mfa", get(mfa::status))
+        .route("/api/mfa/iniciar", post(mfa::begin_enrollment))
+        .route("/api/mfa/confirmar", post(mfa::confirm_enrollment))
+        .route("/api/mfa/desativar", post(mfa::disable))
         .route("/api/logout", post(auth::logout))
         .route("/api/session", get(api::session))
         .route("/api/dashboard", get(api::dashboard))

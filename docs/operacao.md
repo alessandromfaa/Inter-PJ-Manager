@@ -12,6 +12,7 @@
 | ENABLE_REAL_PAYMENTS, ENABLE_BANK_WRITES | Somente false é aceito nesta fase. |
 | DATABASE_URL, DB_PASSWORD_FILE | Endereço PostgreSQL e arquivo de senha. O Compose define os valores internos. |
 | ADMIN_EMAIL, ADMIN_PASSWORD_FILE | Identidade e arquivo da senha do bootstrap. No Compose, o arquivo é montado a partir de secrets/admin. |
+| MFA_ENCRYPTION_KEY_FILE | Arquivo com chave hexadecimal de 32 bytes para cifrar segredos TOTP. O Compose usa `secrets/mfa_key`; preserve-a em backup protegido separado do banco. |
 | COMPANY_NAME | Nome da empresa inicial. Padrão Empresa de demonstração. |
 | USER_EMAIL, USER_ROLE, USER_PASSWORD_FILE, COMPANY_ID | Usados exclusivamente pelo comando criar-usuario. |
 | RUST_LOG | Filtro de tracing, padrão info. |
@@ -21,7 +22,7 @@
 | TEST_DATABASE_URL | Banco descartável de testes de integração, nome inter_pj_test em 127.0.0.1. |
 | E2E_ORIGIN, E2E_EMAIL, E2E_PASSWORD, CHROME_PATH | Configuração exclusiva dos testes de navegador. |
 
-Sessões usam identificadores opacos aleatórios e digest no servidor. A versão atual dispensa segredo global de assinatura e chave de criptografia de payload, pois o recebimento de payloads bancários ainda está desabilitado.
+Sessões usam identificadores opacos aleatórios e digest no servidor. A chave MFA cifra segredos TOTP com XChaCha20-Poly1305. Se a chave for perdida, os usuários precisarão recuperar o acesso por procedimento administrativo antes de reconfigurar MFA; não substitua a chave enquanto existirem credenciais cifradas com a anterior.
 
 ## Provisionar usuário
 
@@ -42,14 +43,19 @@ O comando transaciona a criação do usuário, seu perfil e o evento de provisio
 ./infrastructure/scripts/backup.sh
 ```
 
-O script usa pg_dump em formato custom, verifica o catálogo do dump com pg_restore e grava em backups sob umask 077. Dumps contêm dados pessoais e hashes de senha. Proteja-os com armazenamento criptografado, acesso restrito e política de retenção definida pelo proprietário. Defina RPO e RTO antes de operar dados reais.
+O script usa pg_dump em formato custom, exige arquivo não vazio, verifica o catálogo com pg_restore e confirma que a tabela central `companies` está incluída antes de publicar o arquivo final. Grava dump e manifesto em `backups` sob umask 077. O manifesto registra horário UTC, tamanho, SHA-256, validação do catálogo e indica que a restauração não foi ensaiada. O hash permite conferir integridade do arquivo, mas não prova que ele pode ser restaurado. Dumps contêm dados pessoais e hashes de senha. Proteja ambos com armazenamento criptografado e acesso restrito. Metas propostas pelo proprietário para planejamento: RTO de 4 horas e RPO de 1 hora para dados financeiros; RTO de 8 horas e RPO de 24 horas para aplicação/configuração. São objetivos ainda não comprovados por ensaios cronometrados nem por uma política de backup compatível. `/metrics` publica somente prontidão e indicador do modo MOCK, sem valores, dados pessoais ou rótulos empresariais.
 
-Para exercitar a recuperação, escolha um nome novo em uma instância local isolada. O exemplo falha na criação se o banco de ensaio já existir. Execute a restauração somente após a criação bem-sucedida.
+Antes de habilitar operação contínua, atribua responsáveis e canais para alertas de indisponibilidade, falha de backup, espaço em disco e expiração de certificados. Monitore a idade do último backup e valide periodicamente restaurações em banco isolado. As metas de RTO/RPO acima orientam o planejamento, mas precisam ser aprovadas operacionalmente, medidas em ensaio e sustentadas por frequência de backup/recuperação compatível. Até definir obrigações legais, prazo de retenção e capacidade cifrada, mantenha os backups sob controle manual e não automatize descarte; o script atual não exclui nem rotaciona arquivos. Registre data, operador, resultado do catálogo e resultado do ensaio de restauração em controle operacional sem dados pessoais. Não inclua métricas com dados bancários, identificadores pessoais ou nomes de empresas.
+
+Para buscar o RPO financeiro proposto de 1 hora, agende `./infrastructure/scripts/backup.sh` a cada hora em um host confiável, com `flock` para impedir execuções simultâneas. Use o mesmo diretório de backups protegido, configure alerta se a execução falhar ou se o backup válido mais recente ultrapassar 60 minutos e acompanhe espaço livre. O agendador deve carregar o ambiente/seleção Compose correto, registrar saída sem segredos e não apagar backups. Essa frequência é uma recomendação de desenho, não está instalada pelo repositório nem garante RPO por si só. Até existir armazenamento cifrado fora do host e política aprovada de retenção, mantenha operação controlada e não considere a meta cumprida. Para configuração/aplicação, preserve também os artefatos versionados e inventário de configuração; o backup PostgreSQL isolado não cobre esses componentes.
+
+Para exercitar a recuperação, confira o SHA-256 do dump contra o manifesto e escolha um nome novo em uma instância local isolada. O `createdb` falha se o banco já existir. Execute a restauração somente após a criação bem-sucedida, confira migrations e tabelas e compare totais não sensíveis. Não aponte o `pg_restore` para `manager` nem para qualquer banco com dados que devam ser preservados.
 
 ```sh
 docker compose exec -T db createdb -U postgres -O manager ensaio_restauracao &&
-docker compose exec -T db pg_restore -U postgres -d ensaio_restauracao --single-transaction < "$ARQUIVO_DUMP"
-docker compose exec -T db psql -U postgres -d ensaio_restauracao -c 'SELECT count(*) FROM companies'
+docker compose exec -T db pg_restore -U postgres -d ensaio_restauracao --single-transaction < "$ARQUIVO_DUMP" &&
+docker compose exec -T db psql -U postgres -d ensaio_restauracao -c 'SELECT count(*) AS empresas FROM companies' &&
+docker compose exec -T db psql -U postgres -d ensaio_restauracao -c 'SELECT count(*) AS migrations FROM _sqlx_migrations'
 ```
 
 Confirme as versões em _sqlx_migrations, totais e vínculos por empresa. Revogue todas as sessões recuperadas antes de permitir acesso ao sistema restaurado. Guarde o material de integração em cofre separado. Uma recuperação em produção exige autorização, plano de corte e verificação do estado das ordens junto ao banco.

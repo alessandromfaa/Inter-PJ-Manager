@@ -84,6 +84,7 @@ async fn sessoes_permissoes_e_segregacao() -> Result<()> {
         dummy: Arc::new(hash(&pw)?),
         workers: Arc::new(Semaphore::new(4)),
         bank: Arc::new(MockBank(pool.clone())),
+        mfa_key: Arc::new([0; 32]),
     });
     let creds = json!({"email":email,"password":pw});
     assert_eq!(
@@ -362,6 +363,7 @@ async fn exercitar_recebimentos_mock(
             dummy: Arc::new(String::new()),
             workers: Arc::new(Semaphore::new(1)),
             bank: Arc::new(MockBank(pool.clone())),
+            mfa_key: Arc::new([0; 32]),
         })
         .await?
     );
@@ -422,6 +424,7 @@ async fn exercitar_recebimentos_mock(
         dummy: Arc::new(String::new()),
         workers: Arc::new(Semaphore::new(1)),
         bank: Arc::new(MockBank(pool.clone())),
+        mfa_key: Arc::new([0; 32]),
     };
     assert!(recebimentos::worker::process_one(&app).await?);
     let pending: String = query_scalar(

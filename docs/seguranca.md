@@ -6,6 +6,7 @@ A Fase 1 destina-se ao uso local com dados bancários sintéticos. O banco persi
 - Cookies HttpOnly, SameSite=Strict e Secure em produção. Os POST exigem origem exata e cabeçalho personalizado. CORS permanece fechado. O proxy define CSP, proteção contra framing, no-sniff e política de referência.
 - Tokens de sessão completos só trafegam pelo cookie. O PostgreSQL mantém digest e expiração. A troca de perfil ou desativação de usuário tem efeito nas consultas seguintes.
 - Logs estruturados incluem identificador de requisição, duração e status. Mantenha RUST_LOG em info para operação normal. Segredos bancários ficam fora do frontend e do repositório.
+- `/metrics` não contém identificadores nem saldos, exige sessão ADMIN e deve permanecer acessível somente na rede operacional privada; colete externamente com controle de acesso e retenção.
 - O backend e o proxy executam como usuários sem privilégios e com sistema de arquivos somente leitura. O PostgreSQL usa uma role de aplicação distinta do superusuário. Proteger o volume e os backups com criptografia de disco é responsabilidade da implantação.
 - Permissões e consultas são escopadas à empresa autenticada. A auditoria exibe ações e horários, sem credenciais, senhas ou dados bancários completos.
 - Para incidentes, isole o acesso, preserve a auditoria e revogue sessões do usuário por via administrativa no banco. Limite o acesso ao backup e ao cofre.

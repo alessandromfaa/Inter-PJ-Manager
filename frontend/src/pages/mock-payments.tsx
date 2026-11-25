@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
+import { QRCodeSVG } from "qrcode.react";
 import { Button } from "../components/button";
 import {
   api,
@@ -22,6 +23,7 @@ const dateTime = new Intl.DateTimeFormat("pt-BR", {
 const statusLabels = {
   RASCUNHO: "Rascunho",
   EM_REVISAO: "Em revisão",
+  APROVADO: "Aprovado em MOCK; não enviado",
 };
 const draftSchema = z.object({
   intent_id: z.uuid(),
@@ -37,14 +39,16 @@ type Intent = {
   situacao: keyof typeof statusLabels;
   criado_em: string;
   pode_revisar: boolean;
+  pode_aprovar: boolean;
 };
 const intentSchema: z.ZodType<Intent> = z.object({
   id: z.uuid(),
   destinatario: z.enum(["FORNECEDOR_DEMO", "SERVICOS_DEMO"]),
   valor_centavos: z.string().regex(/^[1-9]\d{0,11}$/),
-  situacao: z.enum(["RASCUNHO", "EM_REVISAO"]),
+  situacao: z.enum(["RASCUNHO", "EM_REVISAO", "APROVADO"]),
   criado_em: z.string().datetime(),
   pode_revisar: z.boolean(),
+  pode_aprovar: z.boolean(),
 });
 type Intents = {
   destinatarios: Recipient[];
@@ -71,6 +75,106 @@ function apiMessage(error: Error, fallback: string) {
   return error instanceof ApiError && error.status < 500
     ? error.message
     : fallback;
+}
+
+function MfaPanel({ user, onExpired }: { user: Identity; onExpired: () => void }) {
+  const cache = useQueryClient();
+  const [password, setPassword] = useState("");
+  const [code, setCode] = useState("");
+  const [setupUri, setSetupUri] = useState("");
+  const status = useQuery({
+    queryKey: ["mfa", user.company_id, user.id],
+    queryFn: () => api<{ habilitado: boolean }>("mfa"),
+  });
+  const update = () => void cache.invalidateQueries({ queryKey: ["mfa", user.company_id, user.id] });
+  const begin = useMutation({
+    mutationFn: () => api<{ otpauth_uri: string }>("mfa/iniciar", { senha: password }),
+    onSuccess: ({ otpauth_uri }) => { setSetupUri(otpauth_uri); setPassword(""); setCode(""); },
+    onError: (error) => { if (error instanceof ApiError && error.status === 401) onExpired(); },
+    retry: false,
+    gcTime: 0,
+  });
+  const confirm = useMutation({
+    mutationFn: () => api<{ habilitado: boolean }>("mfa/confirmar", { codigo: code }),
+    onSuccess: () => { setSetupUri(""); setCode(""); setMessage("MFA ativado para este usuário."); update(); },
+    onError: (error) => { if (error instanceof ApiError && error.status === 401) onExpired(); },
+    retry: false,
+    gcTime: 0,
+  });
+  const disable = useMutation({
+    mutationFn: () => api<{ habilitado: boolean }>("mfa/desativar", { senha: password, codigo: code }),
+    onSuccess: () => { setPassword(""); setCode(""); setMessage("MFA desativado."); update(); },
+    onError: (error) => { if (error instanceof ApiError && error.status === 401) onExpired(); },
+    retry: false,
+    gcTime: 0,
+  });
+  const [message, setMessage] = useState("");
+  return (
+    <section className="panel" aria-labelledby="mfa-title">
+      <h2 id="mfa-title">Autenticador para aprovações</h2>
+      {status.isPending ? <p role="status">Verificando configuração…</p> : status.isError ? <p role="alert">{apiMessage(status.error, "Não foi possível consultar o MFA.")}</p> : status.data.habilitado ? (
+        <>
+          <p>Autenticador TOTP ativo. Desativá-lo exige sua senha e um código atual.</p>
+          <form className="mock-payment-form" onSubmit={(event) => { event.preventDefault(); disable.mutate(); }}>
+            <label>Senha atual<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+            <label>Código do autenticador<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code} onChange={(event) => setCode(event.target.value)} required /></label>
+            <Button type="submit" variant="outline" disabled={disable.isPending}>{disable.isPending ? "Desativando…" : "Desativar autenticador"}</Button>
+          </form>
+          {disable.error && <p role="alert">{apiMessage(disable.error, "Não foi possível desativar o MFA.")}</p>}
+        </>
+      ) : setupUri ? (
+        <>
+          <p>Escaneie com seu aplicativo autenticador. Este QR contém um segredo privado; não o compartilhe. O cadastro expira em 10 minutos.</p>
+          <QRCodeSVG value={setupUri} title="Cadastro TOTP do Inter PJ Manager" size={192} />
+          <form className="mock-payment-form" onSubmit={(event) => { event.preventDefault(); confirm.mutate(); }}>
+            <label>Código de seis dígitos<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code} onChange={(event) => setCode(event.target.value)} required /></label>
+            <Button type="submit" disabled={confirm.isPending}>{confirm.isPending ? "Confirmando…" : "Confirmar autenticador"}</Button>
+          </form>
+          {confirm.error && <p role="alert">{apiMessage(confirm.error, "Código inválido ou cadastro expirado.")}</p>}
+        </>
+      ) : (
+        <>
+          <p>Configure TOTP antes de aprovar intenções. Use um autenticador compatível e guarde o acesso ao dispositivo.</p>
+          <form className="mock-payment-form" onSubmit={(event) => { event.preventDefault(); begin.mutate(); }}>
+            <label>Senha atual<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} required /></label>
+            <Button type="submit" disabled={begin.isPending}>{begin.isPending ? "Preparando…" : "Configurar autenticador"}</Button>
+          </form>
+          {begin.error && <p role="alert">{apiMessage(begin.error, "Não foi possível iniciar o cadastro MFA.")}</p>}
+        </>
+      )}
+      {message && <p role="status">{message}</p>}
+    </section>
+  );
+}
+
+function ApproveIntent({ intent, onApproved, onExpired }: { intent: Intent; onApproved: () => void; onExpired: () => void }) {
+  const [code, setCode] = useState("");
+  const [idempotencyKey] = useState(() => crypto.randomUUID());
+  const approve = useMutation({
+    mutationFn: async () => {
+      const result = await api<{ id: string; situacao: string; envio_bancario: boolean }>(route + "/aprovar", {
+        id: intent.id,
+        destinatario: intent.destinatario,
+        valor_centavos: intent.valor_centavos,
+        chave_idempotencia: idempotencyKey,
+        codigo_mfa: code,
+      });
+      if (result.id !== intent.id || result.situacao !== "APROVADO_MOCK" || result.envio_bancario !== false)
+        throw new Error("A resposta não confirma uma aprovação somente MOCK.");
+      return result;
+    },
+    onSuccess: () => { setCode(""); onApproved(); },
+    onError: (error) => { if (error instanceof ApiError && error.status === 401) onExpired(); },
+    retry: false,
+    gcTime: 0,
+  });
+  return (
+    <form className="mock-payment-form" onSubmit={(event) => { event.preventDefault(); approve.mutate(); }}>
+      <label>Código TOTP para aprovar<input inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" value={code} onChange={(event) => setCode(event.target.value)} required /></label>
+      <Button type="submit" disabled={approve.isPending}>{approve.isPending ? "Aprovando…" : "Aprovar em MOCK"}</Button>
+      {approve.error && <p role="alert">{apiMessage(approve.error, "A aprovação não foi confirmada. Atualize e tente novamente.")}</p>}
+    </form>
+  );
 }
 
 function PrepareIntent({
@@ -257,6 +361,10 @@ export function MockPayments({
     queryKey: [...key, page],
     queryFn: () => api<Intents>(route + "?page=" + page),
   });
+  const mfaStatus = useQuery({
+    queryKey: ["mfa", user.company_id, user.id],
+    queryFn: () => api<{ habilitado: boolean }>("mfa"),
+  });
   useEffect(() => {
     if (rows.error instanceof ApiError && rows.error.status === 401) onExpired();
   }, [rows.error, onExpired]);
@@ -300,6 +408,7 @@ export function MockPayments({
 
   return (
     <>
+      <MfaPanel user={user} onExpired={onExpired} />
       <section className="panel" aria-label="Ambiente dos pagamentos Pix">
         <span className="badge">{environmentLabel("MOCK")}</span>
         <p>
@@ -424,6 +533,13 @@ export function MockPayments({
                             )}
                           </div>
                         </>
+                      )}
+                      {intent.pode_aprovar && (
+                        mfaStatus.data?.habilitado ? (
+                          <ApproveIntent intent={intent} onApproved={() => { setMessage("Intenção aprovada somente em MOCK; nenhum pagamento foi enviado."); refresh(); }} onExpired={onExpired} />
+                        ) : (
+                          <p>Configure o autenticador TOTP acima para aprovar esta intenção.</p>
+                        )
                       )}
                     </li>
                   );

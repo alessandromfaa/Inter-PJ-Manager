@@ -4,7 +4,7 @@ O Compose é o caminho de instalação integrado. Para desenvolvimento nativo, u
 
 ## Backend
 
-Exporte DATABASE_URL apontando a um banco exclusivo, DB_PASSWORD_FILE apontando ao arquivo privado da senha, ADMIN_EMAIL e ADMIN_PASSWORD_FILE. A senha inicial deve ter entre 16 e 256 bytes. Use um diretório privado de segredos. Para desenvolvimento com Vite na porta 5173 defina APP_ORIGIN=http://127.0.0.1:5173.
+Exporte DATABASE_URL apontando a um banco exclusivo, DB_PASSWORD_FILE apontando ao arquivo privado da senha, ADMIN_EMAIL e ADMIN_PASSWORD_FILE. A senha inicial deve ter entre 16 e 256 bytes. Configure `MFA_ENCRYPTION_KEY_FILE` com o caminho de um arquivo contendo 64 caracteres hexadecimais de uma chave aleatória de 32 bytes; mantenha a chave estável e protegida. Use um diretório privado de segredos. Para desenvolvimento com Vite na porta 5173 defina APP_ORIGIN=http://127.0.0.1:5173.
 
 ```sh
 cd backend
@@ -55,11 +55,11 @@ Use uma stack própria para o navegador. O arquivo `compose.e2e.yml` define outr
 umask 077
 mkdir -p secrets/e2e
 existing=$(find secrets/e2e -maxdepth 1 -type f | wc -l)
-if [ "$existing" -ne 0 ] && [ "$existing" -ne 3 ]; then
-  echo "Conjunto parcial de segredos E2E; remova-o manualmente ou restaure os três arquivos." >&2
+if [ "$existing" -ne 0 ] && [ "$existing" -ne 3 ] && [ "$existing" -ne 4 ]; then
+  echo "Conjunto parcial de segredos E2E; restaure os arquivos necessários antes de continuar." >&2
   exit 1
 fi
-for secret in db_root db_app admin; do
+for secret in db_root db_app admin mfa_key; do
   test -e "secrets/e2e/$secret" || openssl rand -out "secrets/e2e/$secret" -hex 32
 done
 chmod 700 secrets/e2e
@@ -72,4 +72,4 @@ E2E_PASSWORD="$(cat secrets/e2e/admin)" \
   npm --prefix frontend exec playwright test
 ```
 
-O Playwright recusa qualquer origem, conta ou senha que não pertença à pilha isolada acima. Não execute a suíte contra o Compose padrão ou contra uma base que contenha dados de produção. `CHROME_PATH` permite usar um Chromium compatível já instalado. Playwright valida o formulário, autenticação, navegação, filtro do extrato, consulta de auditoria, revogação e os fluxos de recebimentos. A CI executa verificações em MOCK e publica somente o resultado dos testes.
+O Playwright recusa qualquer origem, conta ou senha que não pertença à pilha isolada acima. Não execute a suíte contra o Compose padrão ou contra uma base que contenha dados de produção. `CHROME_PATH` permite usar um Chromium compatível já instalado. Playwright valida o formulário, autenticação, navegação, filtro do extrato, consulta de auditoria, revogação e os fluxos de recebimentos. A CI executa verificações em MOCK e publica somente o resultado dos testes. A chave `secrets/e2e/mfa_key` é exclusiva dessa stack e deve permanecer disponível enquanto houver credenciais MFA sintéticas no volume E2E.

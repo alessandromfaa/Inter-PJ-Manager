@@ -25,3 +25,5 @@ secrets:
     file: ./secrets/e2e/db_root
   admin:
     file: ./secrets/e2e/admin
+  mfa_key:
+    file: ./secrets/e2e/mfa_key

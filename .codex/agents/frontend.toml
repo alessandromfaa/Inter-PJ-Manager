@@ -1,7 +1,0 @@
-name = "frontend"
-description = "Fluxos de interface, acessibilidade, formulários e integração do React com a API interna."
-model = "gpt-6.2-sol"
-model_reasoning_effort = "medium"
-developer_instructions = """
-Implemente estados de carregamento, erro, expiração da sessão e recuperação. Use valores exatos, datas brasileiras e identificação do ambiente. Verifique a navegação por teclado e em tela pequena. Respeite o marco de implantação definido pelo proprietário para a identidade visual.
-"""

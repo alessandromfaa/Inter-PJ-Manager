@@ -88,6 +88,7 @@ function BillingForm({
 export function Recebimentos({ mode, user }: { mode: Mode; user: Identity }) {
   const [list, setList] = useState<List>("clientes"),
     [page, setPage] = useState(0);
+  const [eventFilter, setEventFilter] = useState("TODOS");
   const [selected, setSelected] = useState<Item | null>(null),
     [message, setMessage] = useState("");
   const [name, setName] = useState(""),
@@ -103,6 +104,9 @@ export function Recebimentos({ mode, user }: { mode: Mode; user: Identity }) {
       ),
     refetchInterval: list === "clientes" ? false : 4000,
   });
+  const eventItems = (rows.data?.items ?? []).filter(
+    (item) => eventFilter === "TODOS" || item.status === eventFilter,
+  );
   const op = useMutation({
     mutationFn: ({ path, body }: { path: string; body: unknown }) =>
       api<unknown>(path, body, {
@@ -130,6 +134,7 @@ export function Recebimentos({ mode, user }: { mode: Mode; user: Identity }) {
   const change = (v: List) => {
     setList(v);
     setPage(0);
+    setEventFilter("TODOS");
     setSelected(null);
     setMessage("");
     op.reset();
@@ -199,9 +204,29 @@ export function Recebimentos({ mode, user }: { mode: Mode; user: Identity }) {
       <section className="panel">
         <div className="panelhead">
           <h2>{tabs[list]}</h2>
-          <Button variant="outline" onClick={() => void rows.refetch()}>
-            Atualizar
-          </Button>
+          <div className="actions">
+            {list === "eventos" && rows.data && (
+              <>
+                <span role="status">
+                  {rows.data.items.filter((item) => item.status === "ESGOTADO").length} falha(s) definitiva(s) nesta página
+                </span>
+                <label>
+                  Situação
+                  <select value={eventFilter} onChange={(event) => setEventFilter(event.target.value)}>
+                    <option value="TODOS">Todas</option>
+                    <option value="AGUARDANDO">Aguardando</option>
+                    <option value="PROCESSANDO">Processando</option>
+                    <option value="FALHOU">Falhou</option>
+                    <option value="ESGOTADO">Esgotado</option>
+                    <option value="CONCLUIDO">Concluído</option>
+                  </select>
+                </label>
+              </>
+            )}
+            <Button variant="outline" onClick={() => void rows.refetch()}>
+              Atualizar
+            </Button>
+          </div>
         </div>
         {rows.isPending ? (
           <p>Carregando…</p>
@@ -209,7 +234,7 @@ export function Recebimentos({ mode, user }: { mode: Mode; user: Identity }) {
           <p role="alert">{rows.error.message}</p>
         ) : (
           <>
-            {rows.data.items.length === 0 ? (
+            {(list === "eventos" ? eventItems : rows.data.items).length === 0 ? (
               <p>Nenhum registro nesta página.</p>
             ) : (
               <div className="scroll">
@@ -222,7 +247,7 @@ export function Recebimentos({ mode, user }: { mode: Mode; user: Identity }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.data.items.map((row) => (
+                    {(list === "eventos" ? eventItems : rows.data.items).map((row) => (
                       <tr key={(row.family ?? "") + row.id}>
                         <td>
                           {list === "clientes"

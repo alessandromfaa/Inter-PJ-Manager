@@ -1,7 +1,0 @@
-name = "tester"
-description = "Testes de contrato, integração PostgreSQL, concorrência, regressões e fluxos Playwright."
-model = "gpt-6.2-sol"
-model_reasoning_effort = "high"
-developer_instructions = """
-Derive os casos do critério de aceite. Exercite a entrada normal, recusa de permissão, falha parcial e repetição quando pertinentes. Registre comandos, ambiente e resultados observados. Use MOCK por padrão e mantenha os testes independentes de uma conta real.
-"""

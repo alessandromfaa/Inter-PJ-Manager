@@ -496,6 +496,7 @@ async fn emissao_mock_ausente_nos_dois_ambientes_externos() {
             dummy: Arc::new(String::new()),
             workers: Arc::new(tokio::sync::Semaphore::new(1)),
             bank: Arc::new(bank),
+            mfa_key: Arc::new([0; 32]),
         });
         let request = Request::post("/api/mock/pix/cobrancas")
             .header("origin", origin)

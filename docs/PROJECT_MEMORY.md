@@ -1,6 +1,6 @@
 # Memória do projeto
 
-Atualizado em 24/11/2026. Este documento registra decisões duradouras confirmadas no checkout. O estado de execução mais recente fica em [SESSION_HANDOFF.md](SESSION_HANDOFF.md). As instruções vigentes continuam em `AGENTS.md` e no wrapper `cx`.
+Atualizado em 25/11/2026. Este documento registra decisões duradouras confirmadas no checkout. O estado de execução mais recente fica em [SESSION_HANDOFF.md](SESSION_HANDOFF.md). As instruções vigentes continuam em `AGENTS.md` e no wrapper `cx`.
 
 ## Arquitetura e decisões confirmadas
 
@@ -13,14 +13,28 @@ Atualizado em 24/11/2026. Este documento registra decisões duradouras confirmad
 - O Compose E2E usa projeto, volume, empresa e arquivos de segredo próprios. Testes de navegador nunca devem compartilhar a base de clientes/sessões da instância local configurada com produção.
 - A configuração Playwright falha fechada fora da origem/conta E2E (`127.0.0.1:18080`, `admin@e2e.local`); o overlay força MOCK e desabilita escritas e pagamentos.
 - Segredos E2E são criados com `umask 077`; o fluxo recusa conjunto parcial para não divergir da senha persistida no volume.
-- Codex tem perfis especializados em `.codex/agents/` e configuração no checkout em `.codex/config.toml`. A documentação operacional correspondente está em `docs/multiagentes.md`.
+- O checkout mantém agentes desabilitados em `.codex/config.toml`; a seleção de modelo é explícita no comando do terminal e não é imposta pelo projeto.
 - `AGENTS.md` concentra orientações de trabalho no checkout; `docs/DEVLOG.md` registra trabalhos a partir do bootstrap documental, `docs/ROADMAP.md` separa fatos de propostas e `docs/plans/` destina-se a planos futuros.
 
 ## Soluções e limitações confirmadas
 
 - O cliente HTTP do frontend aceita corpo vazio para respostas 204 e para chamadas explicitamente marcadas `allowEmpty`. Chamadas tipadas que precisam de JSON falham com 502 de resposta incompleta.
 - O webhook usa certificado de cliente validado por CA, conta previamente vinculada e persistência antes do worker. Registro/configuração e homologação de callbacks no Inter ainda dependem de credenciais e ambiente autorizados.
-- A Fase 4.1 adiciona intenções de pagamento Pix exclusivamente em MOCK: catálogo sintético, valor exato, idempotência empresa+autor+chave, revisão explícita pelo próprio autor e auditoria transacional. Não há aprovação, MFA ou envio.
+- MFA TOTP está disponível somente em MOCK. O segredo é cifrado com XChaCha20-Poly1305 sob chave hex de 32 bytes em `MFA_ENCRYPTION_KEY_FILE`; manter a chave protegida e recuperável junto à estratégia de backup. Cadastro expira em 10 minutos, falhas bloqueiam por 15 minutos após cinco tentativas e o contador persistido impede reutilizar o mesmo passo TOTP.
+- Aprovação de intenção Pix MOCK exige autor diferente, papel `APPROVER`/`ADMIN`, revisão, MFA e valor até R$ 100.000. Decisão, consumo TOTP, auditoria e chave idempotente são transacionais. O resultado `APROVADO_MOCK` declara `envio_bancario=false`; nenhum envio externo é conectado.
+- A Fase 4 MOCK inclui intenções Pix e aprovação independente por TOTP, com autor distinto, papel `APPROVER`/`ADMIN`, revisão e limite de R$ 100.000. Cadastro MFA cifra segredo com XChaCha20-Poly1305, expira em 10 minutos, bloqueia após cinco falhas e persiste contador anti-replay. Decisão, auditoria, consumo TOTP e chave idempotente são transacionais; resultado é `APROVADO_MOCK` e `envio_bancario=false`.
+- A Fase 5 possui itens financeiros empresariais em MOCK, estados auditados, totais exatos, exportação CSV e lembretes locais idempotentes consultáveis. A integração Pix Automático exige elegibilidade confirmada pelo Inter.
+- Itens financeiros MOCK aceitam categoria e centro de custo em tabelas isoladas por empresa; relatórios CSV por período são gerados no servidor a partir da sessão autenticada e limitados a 366 dias.
+- Regras recorrentes MOCK geram lançamentos somente após ação manual para uma competência escolhida; advisory lock por empresa/período serializa gerações e chave composta empresa+regra+período impede duplicação. Vencimentos 29–31 ajustam ao fim do mês; criação, pausa/reativação e cada lançamento são auditados. A regra pode ser pausada sem alterar lançamentos existentes.
+- `/metrics` expõe somente prontidão e indicador de modo, sem métricas financeiras ou identificadores empresariais; exige sessão autenticada com perfil ADMIN.
+- O script de backup rejeita dump vazio, valida catálogo e inclusão de dados de `companies`, e cria manifesto com data UTC, tamanho, SHA-256 e estado de restauração não ensaiada. O hash verifica integridade, não recuperabilidade; não há rotação automática.
+- A tela financeira MOCK permite cadastrar categorias e centros de custo; os cadastros permanecem isolados por empresa. A operação contínua ainda depende de definir alertas, retenção e rotina comprovada de recuperação.
+- A aba Notificações de recebimentos consulta fila persistida em atualização periódica, permite filtrar estados na página atual e expõe reprocessamento manual de eventos esgotados somente a ADMIN. Não há canal externo de alertas configurado.
+- Backups não são rotacionados automaticamente. Prazo de retenção fica pendente de decisão do proprietário baseada em obrigações, RPO/RTO e armazenamento; não descartar por padrão.
+- Metas propostas pelo proprietário para planejamento: dados financeiros RTO 4 h/RPO 1 h; aplicação/configuração RTO 8 h/RPO 24 h. Ainda precisam de aprovação operacional, ensaios cronometrados e frequência de backup compatível; não são SLOs comprovados.
+- Em 25/11/2026, o backup MOCK E2E foi restaurado com sucesso em bancos isolados: uma empresa, oito migrations sem falha e tabelas recorrentes presentes. Manifesto registra hash, horário, tamanho e validação da restauração.
+- O ensaio de 25/11/2026 mediu 1 s para `createdb` + `pg_restore` do dump E2E pequeno; não representa RTO ponta a ponta. A operação documenta backup horário com `flock` e alerta de atraso como recomendação para buscar RPO de 1 h, ainda não implantada.
+- O proxy HTTPS local em loopback usa TLS 1.2/1.3, HSTS de um ano e cabeçalhos de segurança; certificados locais são de teste e não representam publicação externa.
 - A emissão externa de sandbox registra a intenção antes de enviar. Se o resultado não puder ser conhecido, conserva o estado `INDETERMINADA`, sem reenvio automático.
 - A cobertura de segregação negativa específica no processamento de recebimentos ainda pode ser ampliada. Os testes PostgreSQL exigem banco descartável em loopback chamado `inter_pj_test`.
 - A licença do código próprio aguarda definição do proprietário. O sandbox oficial ainda não foi homologado nesta sessão.
@@ -30,7 +44,8 @@ Atualizado em 24/11/2026. Este documento registra decisões duradouras confirmad
 - O trabalho ocorre no checkout local. SEFIN está fora do escopo.
 - A identidade visual da empresa e a personalização com a logo devem ficar para a etapa final de implantação.
 - Nenhuma operação financeira real foi autorizada. Produção deve continuar somente leitura até nova autorização específica.
-- Durante a implementação das próximas fases, somente testes unitários podem ser executados. Integração, PostgreSQL, contratos, Playwright e a suíte completa ficam para o encerramento do conjunto de fases; o aceite permanece pendente até essa validação final.
+- Direcionamento atualizado em 25/11/2026: implementar as fases do projeto antes da bateria final de testes e refinamentos. Testes de integração, PostgreSQL, contratos, Playwright e validação completa devem ficar agrupados ao encerramento; até então, não declarar aceite final.
+- Nenhuma operação financeira real foi autorizada. Aprovação MOCK pode ser construída com controles apropriados; envio externo permanece bloqueado sem autorização específica e homologação.
 
 ## Hipóteses ainda não verificadas
 

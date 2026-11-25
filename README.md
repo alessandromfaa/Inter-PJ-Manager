@@ -44,6 +44,7 @@ O mesmo manifesto é usado pelos dois motores. Em sistemas com SELinux, configur
 - Auditoria local restrita a ADMIN e AUDITOR. Todos os cinco perfis existem no backend. O provisionamento de usuários adicionais ocorre por comando administrativo local.
 - Tabelas e vínculos multiempresa para as fases seguintes. A Fase 2 permite sincronização explícita de saldo e extrato em SANDBOX ou PRODUCTION. O administrador configura credenciais e habilita a leitura. Escritas bancárias continuam bloqueadas. Consulte o [guia de configuração](docs/inter.md).
 - Recebimentos em MOCK com clientes, cobrança Pix, Cobrança V3, fila deduplicada e conciliação por txid, endToEndId e codigoSolicitacao. Valores fictícios permanecem separados dos dados bancários.
+- Contas a pagar e receber demonstrativas em MOCK, com vencimento, baixa/cancelamento auditados e valores exatos; não alteram saldo nem iniciam pagamentos.
 
 Em MOCK, abra **Cobranças Pix** e clique em **Consultar cobrança** para consultar o exemplo fictício já preenchido. A tela mostra situação, revisão e valor original. Para emitir, entre como ADMIN ou OPERATOR, escolha **Nova cobrança em MOCK**, informe o valor e selecione **Emitir cobrança fictícia**. Você pode copiar o código ou consultar a cobrança pelo txid. Se a resposta se perder, **Retomar emissão** recupera a mesma cobrança na aba. O QR Code de demonstração é impróprio para pagamentos reais.
 

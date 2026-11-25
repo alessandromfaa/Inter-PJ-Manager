@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { Recebimentos } from "./pages/recebimentos";
 import { MockPayments } from "./pages/mock-payments";
+import { Financeiro } from "./pages/financeiro";
 import { Pix } from "./pages/pix";
 import { Banking } from "./pages/banking";
 import { Login } from "./pages/login";
@@ -133,6 +134,9 @@ function App() {
             ...(canSeeMockPayments
               ? [{ name: "Pagamentos Pix", icon: Wallet }]
               : []),
+            ...(mode.data === "MOCK"
+              ? [{ name: "Contas MOCK", icon: CalendarDays }]
+              : []),
             ...(canAudit ? [{ name: "Auditoria", icon: ShieldCheck }] : []),
           ].map(({ name, icon: Icon }) => (
             <button
@@ -189,7 +193,9 @@ function App() {
                 </span>
               )}
           </div>
-          {view === "Pagamentos Pix" && canSeeMockPayments ? (
+          {view === "Contas MOCK" && mode.data === "MOCK" ? (
+            <Financeiro user={session.data} />
+          ) : view === "Pagamentos Pix" && canSeeMockPayments ? (
             <MockPayments
               key={session.data.company_id + ":" + session.data.id}
               user={session.data}

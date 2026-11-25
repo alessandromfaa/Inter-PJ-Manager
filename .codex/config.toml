@@ -1,8 +1,5 @@
 # Configuração compartilhada do Inter PJ Manager.
-model = "gpt-6.2-astra"
-model_reasoning_effort = "high"
+# A seleção de modelo fica a cargo do comando do terminal que iniciar a sessão.
 
 [agents]
-enabled = true
-max_concurrent_threads_per_session = 4
-max_depth = 1
+enabled = false
