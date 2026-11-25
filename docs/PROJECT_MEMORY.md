@@ -20,10 +20,11 @@ Atualizado em 25/11/2026. Este documento registra decisões duradouras confirmad
 
 - O cliente HTTP do frontend aceita corpo vazio para respostas 204 e para chamadas explicitamente marcadas `allowEmpty`. Chamadas tipadas que precisam de JSON falham com 502 de resposta incompleta.
 - O webhook usa certificado de cliente validado por CA, conta previamente vinculada e persistência antes do worker. Registro/configuração e homologação de callbacks no Inter ainda dependem de credenciais e ambiente autorizados.
+- Pix Automático demonstrativo só existe em MOCK: estados de solicitação/consentimento são distintos, competências únicas por empresa/autorização impedem cobranças duplicadas e a liquidação simulada gera apenas identificador sintético. Não coletar dados reais de pagadores nesta tela; integração oficial exige adapter próprio, consentimento e homologação.
 - MFA TOTP está disponível somente em MOCK. O segredo é cifrado com XChaCha20-Poly1305 sob chave hex de 32 bytes em `MFA_ENCRYPTION_KEY_FILE`; manter a chave protegida e recuperável junto à estratégia de backup. Cadastro expira em 10 minutos, falhas bloqueiam por 15 minutos após cinco tentativas e o contador persistido impede reutilizar o mesmo passo TOTP.
 - Aprovação de intenção Pix MOCK exige autor diferente, papel `APPROVER`/`ADMIN`, revisão, MFA e valor até R$ 100.000. Decisão, consumo TOTP, auditoria e chave idempotente são transacionais. O resultado `APROVADO_MOCK` declara `envio_bancario=false`; nenhum envio externo é conectado.
 - A Fase 4 MOCK inclui intenções Pix e aprovação independente por TOTP, com autor distinto, papel `APPROVER`/`ADMIN`, revisão e limite de R$ 100.000. Cadastro MFA cifra segredo com XChaCha20-Poly1305, expira em 10 minutos, bloqueia após cinco falhas e persiste contador anti-replay. Decisão, auditoria, consumo TOTP e chave idempotente são transacionais; resultado é `APROVADO_MOCK` e `envio_bancario=false`.
-- A Fase 5 possui itens financeiros empresariais em MOCK, estados auditados, totais exatos, exportação CSV e lembretes locais idempotentes consultáveis. A integração Pix Automático exige elegibilidade confirmada pelo Inter.
+- A Fase 5 possui itens financeiros empresariais em MOCK, estados auditados, totais exatos, exportação CSV e lembretes locais idempotentes consultáveis. Em 25/11/2026 o proprietário informou elegibilidade para Pix Automático; isso não foi verificado independentemente pelo Inter. O fluxo demonstrativo local mantém consentimento, recorrência e cobrança separados e não movimenta dinheiro. Integração externa depende de habilitação de scopes/credenciais e homologação oficial.
 - Itens financeiros MOCK aceitam categoria e centro de custo em tabelas isoladas por empresa; relatórios CSV por período são gerados no servidor a partir da sessão autenticada e limitados a 366 dias.
 - Regras recorrentes MOCK geram lançamentos somente após ação manual para uma competência escolhida; advisory lock por empresa/período serializa gerações e chave composta empresa+regra+período impede duplicação. Vencimentos 29–31 ajustam ao fim do mês; criação, pausa/reativação e cada lançamento são auditados. A regra pode ser pausada sem alterar lançamentos existentes.
 - `/metrics` expõe somente prontidão e indicador de modo, sem métricas financeiras ou identificadores empresariais; exige sessão autenticada com perfil ADMIN.
@@ -49,5 +50,5 @@ Atualizado em 25/11/2026. Este documento registra decisões duradouras confirmad
 
 ## Hipóteses ainda não verificadas
 
-- A elegibilidade da empresa para Pix Automático depende de confirmação do Inter e não deve ser presumida.
+- Habilitação dos scopes Pix Automático, credenciais e funcionamento da empresa no sandbox Inter continuam sem confirmação; a elegibilidade foi declarada pelo proprietário, não verificada independentemente.
 - A conclusão externa da Fase 3 depende de homologar emissão, consulta de estados e callbacks no sandbox oficial.

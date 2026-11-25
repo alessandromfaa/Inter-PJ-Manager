@@ -13,7 +13,7 @@ O escopo aprovado no plano incremental compreende seis fases. A Fase 7 está for
 ## Pendências para conclusão integral
 
 - Homologar emissão, consulta e callbacks com credenciais oficiais de sandbox Inter.
-- Confirmar elegibilidade de Pix Automático para a empresa antes de integrar.
+- Proprietário informou elegibilidade Pix Automático em 25/11/2026. Próximo passo externo: validar habilitação dos scopes e credenciais com Inter e homologar consentimentos, recorrências, cobranças e callbacks no sandbox; a implementação atual limita-se a MOCK.
 - Definir retenção, provisionar armazenamento cifrado externo e instalar/monitorar frequência de backup compatível com RPO financeiro proposto de 1 hora. Nenhum agendamento foi configurado.
 - Configurar canal e responsáveis para alertas operacionais.
 - Medir recuperação ponta a ponta contra as metas propostas de RTO/RPO. O restore de 1 segundo cobriu apenas o banco E2E pequeno e não prova o RTO completo.

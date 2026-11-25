@@ -17,10 +17,12 @@ import {
   SunMoon,
   CalendarDays,
   Wallet,
+  Repeat,
 } from "lucide-react";
 import { Recebimentos } from "./pages/recebimentos";
 import { MockPayments } from "./pages/mock-payments";
 import { Financeiro } from "./pages/financeiro";
+import { PixAutomatico } from "./pages/pix-automatico";
 import { Pix } from "./pages/pix";
 import { Banking } from "./pages/banking";
 import { Login } from "./pages/login";
@@ -135,7 +137,10 @@ function App() {
               ? [{ name: "Pagamentos Pix", icon: Wallet }]
               : []),
             ...(mode.data === "MOCK"
-              ? [{ name: "Contas MOCK", icon: CalendarDays }]
+              ? [
+                  { name: "Contas MOCK", icon: CalendarDays },
+                  { name: "Pix Automático", icon: Repeat },
+                ]
               : []),
             ...(canAudit ? [{ name: "Auditoria", icon: ShieldCheck }] : []),
           ].map(({ name, icon: Icon }) => (
@@ -195,6 +200,8 @@ function App() {
           </div>
           {view === "Contas MOCK" && mode.data === "MOCK" ? (
             <Financeiro user={session.data} />
+          ) : view === "Pix Automático" && mode.data === "MOCK" ? (
+            <PixAutomatico user={session.data} />
           ) : view === "Pagamentos Pix" && canSeeMockPayments ? (
             <MockPayments
               key={session.data.company_id + ":" + session.data.id}

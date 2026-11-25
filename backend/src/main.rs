@@ -6,6 +6,7 @@ mod domain;
 mod financeiro;
 mod mfa;
 mod pagamentos;
+mod pix_automatico;
 mod recebimentos;
 mod infrastructure {
     pub mod banking;
@@ -229,6 +230,22 @@ fn router(app: App) -> Router {
     }
     if app.bank.environment() == "MOCK" {
         routes = routes
+            .route(
+                "/api/mock/pix-automatico/recorrencias",
+                get(pix_automatico::list).post(pix_automatico::create),
+            )
+            .route(
+                "/api/mock/pix-automatico/recorrencias/decidir",
+                post(pix_automatico::decide),
+            )
+            .route(
+                "/api/mock/pix-automatico/cobrancas",
+                get(pix_automatico::charges).post(pix_automatico::create_charge),
+            )
+            .route(
+                "/api/mock/pix-automatico/cobrancas/liquidar",
+                post(pix_automatico::settle_charge),
+            )
             .route(
                 "/api/mock/financeiro",
                 get(financeiro::list).post(financeiro::create),

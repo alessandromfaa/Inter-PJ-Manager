@@ -1,5 +1,14 @@
 # Continuidade da sessão
 
+## Pix Automático MOCK — 25/11/2026
+
+- O proprietário informou que a empresa é elegível. Isso ainda não foi verificado pelo Inter. A matriz registra escopos e endpoints oficiais existentes e as pendências de credenciais/homologação.
+- Implementado fluxo local MOCK para solicitar autorização, simular aceite/recusa, criar cobranças por competência idempotente e simular liquidação. Migration `0011_mock_pix_automatico.sql`; módulo backend isolado; tela própria visível apenas em MOCK.
+- Todas as rotas resolvem a empresa da sessão, aplicam RBAC e guard de origem; alterações e auditoria transacionárias. Valores são centavos inteiros. Não há CPF/CNPJ, dados bancários, webhook externo ou chamada/transferência bancária neste MVP.
+- Validações concluídas: Rust fmt, 19 testes unitários + 1 teste de modos, Clippy com warnings negados e build release; frontend lint, 2 testes unitários e build; `git diff --check`. Novo E2E Playwright completou autorização, aceite, cobrança e liquidação simulada (1/1).
+- Migration 0011 aplicada pelo bootstrap à stack MOCK E2E isolada. Deploy local em `http://127.0.0.1:18080` saudável (`/ready=ok`); web presa a loopback. Volume mantido e migration 0007/checksum preservados. Stack de leitura configurada à parte não foi alterada.
+- Próximo passo externo: validar scopes e credenciais Pix Automático com Inter e executar homologação oficial de consentimentos, cobranças e callbacks no sandbox. Nenhuma operação bancária real ocorreu; Fase 7 continua excluída.
+
 ## Deploy local da branch — 25/11/2026
 
 - Reconstruída a stack `inter-pj-manager-e2e` em MOCK com o código da branch, mantendo o volume PostgreSQL existente. API e frontend saudáveis; `/ready` respondeu `ok` em `http://127.0.0.1:18080`.
@@ -15,7 +24,7 @@
 - Validações finais após o incremento: `cargo fmt --all -- --check`; `cargo test --locked --features testes-postgres` (20 testes no binário e 1 de modos); `cargo clippy --locked --all-targets --all-features -- -D warnings`; `cargo build --locked --release`; `cargo audit` (277 dependências, sem avisos); frontend `npm run lint`, `npm test -- --run` (2 testes), `npm run build`, `npm audit --omit=dev` (0 vulnerabilidades) e Playwright E2E (7/7) passaram. O build emite dois avisos Rollup sobre comentários `@__PURE__` do Zod.
 - Exercício integrado MFA/aprovação na stack E2E: cadastro TOTP, intenção revisada por ADMIN, aprovação por usuário APPROVER distinto, repetição da mesma chave idempotente e rejeição do replay do mesmo TOTP passaram; a resposta confirma `envio_bancario=false`. Migration 0010 aplicada na stack E2E saudável. O ensaio deixou somente usuários/intents sintéticos na base E2E isolada; nenhuma limpeza destrutiva foi feita.
 - O PostgreSQL descartável de teste foi encerrado e removido. A stack E2E permaneceu ativa; não houve commit, push, publicação ou ação na stack local de produção.
-- Pendências externas: homologação Inter no sandbox com credenciais autorizadas; confirmação de elegibilidade Pix Automático; decisão de retenção e canal de alertas/armazenamento cifrado externo; definição de licença. Fase 7 excluída por solicitação. O escopo local executável está concluído, mas o projeto integral depende desses itens externos e de decisões operacionais.
+- Pendências externas: homologação Inter no sandbox com credenciais autorizadas; scopes Pix Automático; decisão de retenção e canal de alertas/armazenamento cifrado externo; definição de licença. Elegibilidade Pix Automático foi informada pelo proprietário, sem confirmação independente do banco. Fase 7 excluída por solicitação.
 
 ## Encerramento da Fase 6 — 25/11/2026
 

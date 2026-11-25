@@ -7,7 +7,7 @@ Consulta documental em 23/11/2026. OAuth, saldo e extrato completo possuem adapt
 | OAuth e Banking de leitura | Fase 2 |
 | Pix recebimentos, Cobrança V3 e respectivos callbacks | Fase 3 |
 | Ordens de pagamento Banking | Fase 4 |
-| Pix Automático | Fase 5, condicionada a elegibilidade |
+| Pix Automático | Fase 5, elegibilidade informada pelo proprietário em 25/11/2026; fluxo local MOCK em desenvolvimento |
 | Forum | Opcional, sem prioridade bancária |
 
 ## OAuth
@@ -109,6 +109,8 @@ Para a emissão imediata, o contrato revisado em 24/11/2026 especifica PUT com t
 
 ## Pix Automático
 
+Em 25/11/2026, o proprietário informou que a empresa é elegível. Essa informação não constitui confirmação independente do Inter nem prova de habilitação dos escopos. Antes de integração externa: validar o cadastro com o banco, autorizar `rec.*` e `solicrec.*`, confirmar credenciais/certificados e homologar consentimento, recorrência, cobranças e callbacks no sandbox oficial. Nenhum fluxo MOCK abaixo envia operações ao banco.
+
 [Especificação oficial](https://developers.inter.co/redocusaurus/swagger-api-pix-automatico-yaml.yaml)
 
 | Operação e versão | Escopo | P | S | Respostas HTTP |
@@ -163,7 +165,7 @@ O banco descreve dados fictícios no sandbox de leitura. Antes de cada implement
 
 A Cobrança V3 prevê acompanhamento por `codigoSolicitacao`. Aceitação para processamento e liquidação são estados distintos. [Histórico de mudanças](https://developers.inter.co/changelog/18/05/2026).
 
-Verificar escopos e requisito de seis meses de atividade do CNPJ para Pix Automático. A habilitação depende da análise do banco. Crédito imobiliário possui contrato próprio para parceiros. CNAB utiliza intercâmbio de arquivos. [Catálogo](https://developers.inter.co/docs/introducao/nossas-apis).
+Para Pix Automático, o proprietário informou elegibilidade, mas a habilitação continua dependendo de validação do banco e concessão dos escopos. Crédito imobiliário possui contrato próprio para parceiros. CNAB utiliza intercâmbio de arquivos. [Catálogo](https://developers.inter.co/docs/introducao/nossas-apis).
 
 Para callbacks, verificar o mecanismo de autenticação de cada família e validar a associação da conta antes do processamento. [Webhooks](https://developers.inter.co/docs/webhooks/o-que-e-webhooks).
 
