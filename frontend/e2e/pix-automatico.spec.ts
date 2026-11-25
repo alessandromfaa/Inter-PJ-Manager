@@ -22,7 +22,13 @@ test("Pix Automático MOCK percorre consentimento, cobrança e liquidação fict
   await page.getByLabel("Referência de contrato").fill(marker.slice(0, 30));
   await page.getByLabel("Início").fill(start);
   await page.getByLabel("Valor recorrente (R$)").fill("23,45");
+  const authorizationCreated = page.waitForResponse((response) =>
+    response.url().endsWith("/api/mock/pix-automatico/recorrencias") && response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Criar solicitação fictícia" }).click();
+  const authorizationResponse = await authorizationCreated;
+  expect(authorizationResponse.status()).toBe(201);
+  const authorization = await authorizationResponse.json();
   await expect(page.getByText(payer)).toBeVisible();
 
   await page.getByRole("button", { name: "Simular aceite do pagador" }).click();
@@ -30,9 +36,41 @@ test("Pix Automático MOCK percorre consentimento, cobrança e liquidação fict
   await page.getByLabel("Autorização ativa").selectOption({ label: `${payer} · MENSAL` });
   await page.getByLabel("Competência").fill(start);
   await page.getByLabel("Valor da cobrança (R$)").fill("23,45");
+  const chargeCreated = page.waitForResponse((response) =>
+    response.url().endsWith("/api/mock/pix-automatico/cobrancas") && response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Criar cobrança fictícia" }).click();
+  const chargeResponse = await chargeCreated;
+  expect(chargeResponse.status()).toBe(201);
+  const charge = await chargeResponse.json();
+  const duplicate = await page.request.post(`${origin}/api/mock/pix-automatico/cobrancas`, {
+    data: chargeResponse.request().postDataJSON(),
+    headers: { Origin: origin, "X-PJ-Request": "1" },
+  });
+  expect(duplicate.status()).toBe(200);
+  expect((await duplicate.json()).id).toBe(charge.id);
   await expect(page.getByText(`${start} · R$ 23,45 · CRIADA`)).toBeVisible();
+  const settled = page.waitForResponse((response) =>
+    response.url().endsWith("/api/mock/pix-automatico/cobrancas/liquidar") && response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Simular liquidação" }).click();
-  await expect(page.getByText(`${start} · R$ 23,45 · LIQUIDADA`)).toBeVisible();
-  await expect(page.getByText("Identificador de demonstração:")).toBeVisible();
+  const settlement = await settled;
+  const settlementResult = await settlement.json();
+  const repeatedSettlement = await page.request.post(`${origin}/api/mock/pix-automatico/cobrancas/liquidar`, {
+    data: { id: charge.id },
+    headers: { Origin: origin, "X-PJ-Request": "1" },
+  });
+  expect(repeatedSettlement.ok()).toBe(true);
+  expect((await repeatedSettlement.json()).end_to_end_id).toBe(settlementResult.end_to_end_id);
+  const settledCharge = page.locator("article.event").filter({ hasText: settlementResult.end_to_end_id });
+  await expect(settledCharge).toContainText(`${start} · R$ 23,45 · LIQUIDADA`);
+  await expect(settledCharge).toContainText(`Identificador de demonstração: ${settlementResult.end_to_end_id}`);
+  const authorizationCard = page.locator("article.event").filter({ hasText: payer });
+  await authorizationCard.getByRole("button", { name: "Cancelar autorização" }).click();
+  await expect(authorizationCard).toContainText(`${payer} · CANCELADA`);
+  const repeatedCancellation = await page.request.post(`${origin}/api/mock/pix-automatico/recorrencias/cancelar`, {
+    data: { id: authorization.id },
+    headers: { Origin: origin, "X-PJ-Request": "1" },
+  });
+  expect(repeatedCancellation.ok()).toBe(true);
 });

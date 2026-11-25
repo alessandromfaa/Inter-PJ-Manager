@@ -96,10 +96,11 @@ Estas rotas só são registradas quando `INTER_ENV=mock`; usam a empresa da sess
 |---|---|
 | GET /api/mock/pix-automatico/recorrencias | Perfis de consulta; lista autorizações fictícias da empresa. |
 | POST /api/mock/pix-automatico/recorrencias | ADMIN ou OPERATOR; cria autorização e solicitação de consentimento fictícia em estado `AGUARDANDO_CONSENTIMENTO`. |
-| POST /api/mock/pix-automatico/recorrencias/decidir | ADMIN ou OPERATOR; simula aceite/recusa uma única vez. Aceite muda para `ATIVA`; não representa consentimento real. |
+| POST /api/mock/pix-automatico/recorrencias/decidir | ADMIN ou OPERATOR; simula aceite/recusa. Repetição da mesma decisão retorna o estado final; decisão oposta conflita. Aceite muda para `ATIVA`; não representa consentimento real. |
+| POST /api/mock/pix-automatico/recorrencias/cancelar | ADMIN ou OPERATOR; cancela solicitação pendente ou autorização ativa; repetição após sucesso retorna o estado final sem novo evento de auditoria. |
 | GET /api/mock/pix-automatico/cobrancas | Perfis de consulta; lista cobranças fictícias da empresa. |
-| POST /api/mock/pix-automatico/cobrancas | ADMIN ou OPERATOR; cria cobrança para autorização ativa, valor fixado e competência ainda não usada. A chave única empresa+autorização+competência impede duplicação. |
-| POST /api/mock/pix-automatico/cobrancas/liquidar | ADMIN ou OPERATOR; marca uma cobrança como liquidada em simulação e gera identificador sintético. |
+| POST /api/mock/pix-automatico/cobrancas | ADMIN ou OPERATOR; cria cobrança para autorização ativa, valor fixado e competência ainda não usada. Repetir a competência retorna a mesma cobrança (200), sem nova auditoria. |
+| POST /api/mock/pix-automatico/cobrancas/liquidar | ADMIN ou OPERATOR; marca uma cobrança como liquidada em simulação e gera identificador sintético; repetição retorna o mesmo resultado final. |
 
 Escopo funcional do MOCK: um valor fixo por recorrência; competências são lançadas manualmente e a aplicação não envia notificações ao pagador. A contratação externa exige contrato Pix Automático oficial, consentimento válido, identificação do devedor e conta recebedora segundo contrato, scopes e credenciais concedidos pelo Inter, além de homologação no sandbox. A elegibilidade foi informada pelo proprietário, mas não confirmada independentemente pelo banco.
 

@@ -34,6 +34,12 @@ pub struct Decision {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct AuthorizationId {
+    id: Uuid,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct NewCharge {
     authorization_id: Uuid,
     competencia: Date,
@@ -185,17 +191,59 @@ pub async fn decide(
     let identity = user(&app, &headers, true).await?;
     let Json(input) = body.map_err(|e| Error::Invalid(e.status()))?;
     let mut tx = app.db.begin().await?;
-    let row=query_as::<_,(Uuid,String,String,String,String,Date,Option<Date>,i64,String,Uuid)>("UPDATE mock_pix_recurring_authorizations SET status=CASE WHEN $3 THEN 'ATIVA'::mock_rec_status ELSE 'RECUSADA'::mock_rec_status END,updated_at=now() WHERE company_id=$1 AND id=$2 AND status='AGUARDANDO_CONSENTIMENTO' RETURNING id,nome_pagador,objeto,contrato,periodicidade,data_inicial,data_final,valor_centavos,status::text,solicitacao_id").bind(identity.company_id).bind(input.id).bind(input.aceitar).fetch_optional(&mut *tx).await?.ok_or(Error::Conflict)?;
-    query("INSERT INTO audit_logs(company_id,actor,action) VALUES($1,$2,$3)")
-        .bind(identity.company_id)
-        .bind(identity.id)
-        .bind(if input.aceitar {
-            "Consentimento Pix Automático fictício aceito"
-        } else {
-            "Consentimento Pix Automático fictício recusado"
-        })
-        .execute(&mut *tx)
-        .await?;
+    let current=query_as::<_,(Uuid,String,String,String,String,Date,Option<Date>,i64,String,Uuid)>("SELECT id,nome_pagador,objeto,contrato,periodicidade,data_inicial,data_final,valor_centavos,status::text,solicitacao_id FROM mock_pix_recurring_authorizations WHERE company_id=$1 AND id=$2 FOR UPDATE").bind(identity.company_id).bind(input.id).fetch_optional(&mut *tx).await?.ok_or(Error::Missing)?;
+    let target = if input.aceitar { "ATIVA" } else { "RECUSADA" };
+    let row = if current.8 == target {
+        current
+    } else if current.8 == "AGUARDANDO_CONSENTIMENTO" {
+        let changed=query_as::<_,(Uuid,String,String,String,String,Date,Option<Date>,i64,String,Uuid)>("UPDATE mock_pix_recurring_authorizations SET status=$3::mock_rec_status,updated_at=now() WHERE company_id=$1 AND id=$2 RETURNING id,nome_pagador,objeto,contrato,periodicidade,data_inicial,data_final,valor_centavos,status::text,solicitacao_id").bind(identity.company_id).bind(input.id).bind(target).fetch_one(&mut *tx).await?;
+        query("INSERT INTO audit_logs(company_id,actor,action) VALUES($1,$2,$3)")
+            .bind(identity.company_id)
+            .bind(identity.id)
+            .bind(if input.aceitar {
+                "Consentimento Pix Automático fictício aceito"
+            } else {
+                "Consentimento Pix Automático fictício recusado"
+            })
+            .execute(&mut *tx)
+            .await?;
+        changed
+    } else {
+        return Err(Error::Conflict);
+    };
+    tx.commit().await?;
+    Ok(Json(Authorization {
+        id: row.0,
+        nome_pagador: row.1,
+        objeto: row.2,
+        contrato: row.3,
+        periodicidade: row.4,
+        data_inicial: row.5,
+        data_final: row.6,
+        valor_centavos: row.7.to_string(),
+        status: row.8,
+        solicitacao_id: row.9,
+    }))
+}
+
+pub async fn cancel(
+    State(app): State<App>,
+    headers: HeaderMap,
+    body: std::result::Result<Json<AuthorizationId>, JsonRejection>,
+) -> Result<Json<Authorization>> {
+    let identity = user(&app, &headers, true).await?;
+    let Json(input) = body.map_err(|e| Error::Invalid(e.status()))?;
+    let mut tx = app.db.begin().await?;
+    let current=query_as::<_,(Uuid,String,String,String,String,Date,Option<Date>,i64,String,Uuid)>("SELECT id,nome_pagador,objeto,contrato,periodicidade,data_inicial,data_final,valor_centavos,status::text,solicitacao_id FROM mock_pix_recurring_authorizations WHERE company_id=$1 AND id=$2 FOR UPDATE").bind(identity.company_id).bind(input.id).fetch_optional(&mut *tx).await?.ok_or(Error::Missing)?;
+    let row = if current.8 == "CANCELADA" {
+        current
+    } else if matches!(current.8.as_str(), "ATIVA" | "AGUARDANDO_CONSENTIMENTO") {
+        let changed=query_as::<_,(Uuid,String,String,String,String,Date,Option<Date>,i64,String,Uuid)>("UPDATE mock_pix_recurring_authorizations SET status='CANCELADA',updated_at=now() WHERE company_id=$1 AND id=$2 RETURNING id,nome_pagador,objeto,contrato,periodicidade,data_inicial,data_final,valor_centavos,status::text,solicitacao_id").bind(identity.company_id).bind(input.id).fetch_one(&mut *tx).await?;
+        query("INSERT INTO audit_logs(company_id,actor,action) VALUES($1,$2,'Autorização Pix Automático fictícia cancelada')").bind(identity.company_id).bind(identity.id).execute(&mut *tx).await?;
+        changed
+    } else {
+        return Err(Error::Conflict);
+    };
     tx.commit().await?;
     Ok(Json(Authorization {
         id: row.0,
@@ -253,11 +301,20 @@ pub async fn create_charge(
         return Err(Error::Conflict);
     }
     let id = Uuid::new_v4();
-    let row=query_as::<_,(Uuid,Uuid,Date,i64,String,Option<String>)>("INSERT INTO mock_pix_recurring_charges(id,company_id,authorization_id,competencia,valor_centavos) VALUES($1,$2,$3,$4,$5) ON CONFLICT(company_id,authorization_id,competencia) DO NOTHING RETURNING id,authorization_id,competencia,valor_centavos,status::text,end_to_end_id").bind(id).bind(identity.company_id).bind(input.authorization_id).bind(input.competencia).bind(cents).fetch_optional(&mut *tx).await?.ok_or(Error::Conflict)?;
-    query("INSERT INTO audit_logs(company_id,actor,action) VALUES($1,$2,'Cobrança Pix Automático fictícia criada')").bind(identity.company_id).bind(identity.id).execute(&mut *tx).await?;
+    let inserted=query_as::<_,(Uuid,Uuid,Date,i64,String,Option<String>)>("INSERT INTO mock_pix_recurring_charges(id,company_id,authorization_id,competencia,valor_centavos) VALUES($1,$2,$3,$4,$5) ON CONFLICT(company_id,authorization_id,competencia) DO NOTHING RETURNING id,authorization_id,competencia,valor_centavos,status::text,end_to_end_id").bind(id).bind(identity.company_id).bind(input.authorization_id).bind(input.competencia).bind(cents).fetch_optional(&mut *tx).await?;
+    let (row, response_status) = if let Some(row) = inserted {
+        query("INSERT INTO audit_logs(company_id,actor,action) VALUES($1,$2,'Cobrança Pix Automático fictícia criada')").bind(identity.company_id).bind(identity.id).execute(&mut *tx).await?;
+        (row, StatusCode::CREATED)
+    } else {
+        let existing=query_as::<_,(Uuid,Uuid,Date,i64,String,Option<String>)>("SELECT id,authorization_id,competencia,valor_centavos,status::text,end_to_end_id FROM mock_pix_recurring_charges WHERE company_id=$1 AND authorization_id=$2 AND competencia=$3").bind(identity.company_id).bind(input.authorization_id).bind(input.competencia).fetch_one(&mut *tx).await?;
+        if existing.3 != cents {
+            return Err(Error::Conflict);
+        }
+        (existing, StatusCode::OK)
+    };
     tx.commit().await?;
     Ok((
-        StatusCode::CREATED,
+        response_status,
         Json(Charge {
             id: row.0,
             authorization_id: row.1,
@@ -278,8 +335,17 @@ pub async fn settle_charge(
     let Json(input) = body.map_err(|e| Error::Invalid(e.status()))?;
     let mut tx = app.db.begin().await?;
     let e2e = format!("E{}", Uuid::new_v4().simple());
-    let row=query_as::<_,(Uuid,Uuid,Date,i64,String,Option<String>)>("UPDATE mock_pix_recurring_charges SET status='LIQUIDADA',end_to_end_id=$3,settled_at=now() WHERE company_id=$1 AND id=$2 AND status='CRIADA' RETURNING id,authorization_id,competencia,valor_centavos,status::text,end_to_end_id").bind(identity.company_id).bind(input.id).bind(&e2e).fetch_optional(&mut *tx).await?.ok_or(Error::Conflict)?;
-    query("INSERT INTO audit_logs(company_id,actor,action) VALUES($1,$2,'Liquidação de cobrança Pix Automático simulada em MOCK; nenhuma transação bancária enviada')").bind(identity.company_id).bind(identity.id).execute(&mut *tx).await?;
+    let changed=query_as::<_,(Uuid,Uuid,Date,i64,String,Option<String>)>("UPDATE mock_pix_recurring_charges SET status='LIQUIDADA',end_to_end_id=$3,settled_at=now() WHERE company_id=$1 AND id=$2 AND status='CRIADA' RETURNING id,authorization_id,competencia,valor_centavos,status::text,end_to_end_id").bind(identity.company_id).bind(input.id).bind(&e2e).fetch_optional(&mut *tx).await?;
+    let row = if let Some(changed) = changed {
+        query("INSERT INTO audit_logs(company_id,actor,action) VALUES($1,$2,'Liquidação de cobrança Pix Automático simulada em MOCK; nenhuma transação bancária enviada')").bind(identity.company_id).bind(identity.id).execute(&mut *tx).await?;
+        changed
+    } else {
+        let current=query_as::<_,(Uuid,Uuid,Date,i64,String,Option<String>)>("SELECT id,authorization_id,competencia,valor_centavos,status::text,end_to_end_id FROM mock_pix_recurring_charges WHERE company_id=$1 AND id=$2").bind(identity.company_id).bind(input.id).fetch_optional(&mut *tx).await?.ok_or(Error::Missing)?;
+        if current.4 != "LIQUIDADA" {
+            return Err(Error::Conflict);
+        }
+        current
+    };
     tx.commit().await?;
     Ok(Json(Charge {
         id: row.0,

@@ -239,6 +239,10 @@ fn router(app: App) -> Router {
                 post(pix_automatico::decide),
             )
             .route(
+                "/api/mock/pix-automatico/recorrencias/cancelar",
+                post(pix_automatico::cancel),
+            )
+            .route(
                 "/api/mock/pix-automatico/cobrancas",
                 get(pix_automatico::charges).post(pix_automatico::create_charge),
             )

@@ -65,6 +65,11 @@ export function PixAutomatico({ user }: { user: Identity }) {
     onSuccess: async () => { setMessage("Decisão simulada em MOCK."); await refresh(); },
     onError: () => setMessage("A autorização não está mais aguardando decisão."),
   });
+  const cancel = useMutation({
+    mutationFn: (id: string) => api<Authorization>(base + "/recorrencias/cancelar", { id }),
+    onSuccess: async () => { setMessage("Autorização fictícia cancelada."); await refresh(); },
+    onError: () => setMessage("Não foi possível cancelar a autorização."),
+  });
   const issue = useMutation({
     mutationFn: () => api<Charge>(base + "/cobrancas", {
       authorization_id: selected, competencia: competence, valor_centavos: toCents(chargeAmount),
@@ -101,6 +106,7 @@ export function PixAutomatico({ user }: { user: Identity }) {
         <strong>{a.nome_pagador} · {a.status}</strong><p>{a.objeto} · {a.periodicidade} · {brl(a.valor_centavos)} · início {a.data_inicial}{a.data_final ? ` · fim ${a.data_final}` : ""}</p>
         <small>Solicitação de consentimento fictícia: {a.solicitacao_id}</small>
         {a.status === "AGUARDANDO_CONSENTIMENTO" && <div className="actions"><button disabled={decide.isPending} onClick={() => decide.mutate({ id: a.id, aceitar: true })}>Simular aceite do pagador</button><button className="secondary" disabled={decide.isPending} onClick={() => decide.mutate({ id: a.id, aceitar: false })}>Simular recusa</button></div>}
+        {(a.status === "AGUARDANDO_CONSENTIMENTO" || a.status === "ATIVA") && <button className="secondary" disabled={cancel.isPending} onClick={() => cancel.mutate(a.id)}>Cancelar autorização</button>}
       </article>) : <p>Nenhuma solicitação criada.</p>}
     </section>
     <section className="panel"><h2>Cobranças recorrentes de demonstração</h2>
