@@ -64,7 +64,7 @@ for secret in db_root db_app admin mfa_key; do
 done
 chmod 700 secrets/e2e
 chmod 444 secrets/e2e/*
-APP_PORT=18080 APP_ORIGIN=http://127.0.0.1:18080 \
+APP_BIND_ADDRESS=127.0.0.1 APP_PORT=18080 APP_ORIGIN=http://127.0.0.1:18080 \
   docker compose -p inter-pj-manager-e2e -f compose.yml -f compose.e2e.yml up -d --build
 E2E_ORIGIN=http://127.0.0.1:18080 \
 E2E_EMAIL=admin@e2e.local \

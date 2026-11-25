@@ -8,6 +8,7 @@
 | APP_HOST | Bind da API nativa. Padrão 127.0.0.1. O Compose usa 0.0.0.0 dentro da rede privada. |
 | APP_PORT | Porta nativa e porta externa da interface no Compose, por padrão 8080. |
 | APP_ORIGIN | Origem exata vista pelo navegador, por padrão http://127.0.0.1:8080. Ao mudar a porta pública, ajuste também a origem. |
+| APP_BIND_ADDRESS | Interface IPv4 em que o NGINX publica a porta Compose; para desenvolvimento local, use `127.0.0.1`. |
 | BANK_PROVIDER, INTER_ENV | inter e mock por padrão. sandbox e production exigem ENABLE_BANK_READS=true. |
 | ENABLE_REAL_PAYMENTS, ENABLE_BANK_WRITES | Somente false é aceito nesta fase. |
 | DATABASE_URL, DB_PASSWORD_FILE | Endereço PostgreSQL e arquivo de senha. O Compose define os valores internos. |

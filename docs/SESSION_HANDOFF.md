@@ -1,5 +1,12 @@
 # Continuidade da sessão
 
+## Deploy local da branch — 25/11/2026
+
+- Reconstruída a stack `inter-pj-manager-e2e` em MOCK com o código da branch, mantendo o volume PostgreSQL existente. API e frontend saudáveis; `/ready` respondeu `ok` em `http://127.0.0.1:18080`.
+- O primeiro bootstrap recusou a migration 0007 porque o volume E2E já tinha o checksum da versão anteriormente aplicada. Comparação SHA-384 confirmou que o checksum registrado corresponde ao arquivo SQL com uma linha vazia final; esse byte foi preservado para não reescrever histórico de migration. Depois, bootstrap iniciou e SQLx confirmou versões 7, 9 e 10 com `success=true`.
+- A publicação Compose estava vinculada a `172.17.154.31`; tornou-se configurável por `APP_BIND_ADDRESS` e o frontend foi recriado em `127.0.0.1:18080`. Nenhuma porta foi exposta em interface de rede externa. Stack local configurada para leitura de produção não foi alterada.
+- A migration 0007 tem uma linha vazia final intencional para manter o checksum do volume E2E existente; `git diff --check` pode sinalizá-la. Não altere nem reformate a migration após aplicação. Segredos e dados sintéticos seguem apenas em `secrets/e2e/` e no volume E2E ignorado pelo Git.
+
 ## Retomada final — MFA e aprovações MOCK — 25/11/2026
 
 - Implementados endpoints TOTP de status, início, confirmação e desativação; segredos ficam cifrados em `user_mfa_credentials`, com expiração do cadastro, confirmação de senha, bloqueio por falhas e rejeição de replay.

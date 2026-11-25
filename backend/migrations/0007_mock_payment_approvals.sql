@@ -16,3 +16,4 @@ ALTER TABLE mock_payment_intents
         UNIQUE (company_id, approved_by, approval_idempotency_key),
     ADD CONSTRAINT mock_payment_approval_requires_review_check
         CHECK (approved_at IS NULL OR review_requested_at IS NOT NULL);
+
