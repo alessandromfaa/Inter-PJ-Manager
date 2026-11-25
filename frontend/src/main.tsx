@@ -18,6 +18,8 @@ import {
   CalendarDays,
   Wallet,
   Repeat,
+  Menu,
+  X,
 } from "lucide-react";
 import { Recebimentos } from "./pages/recebimentos";
 import { MockPayments } from "./pages/mock-payments";
@@ -68,6 +70,7 @@ function App() {
   });
   const [view, setView] = useState("Visão geral");
   const [dark, setDark] = useState(localStorage.getItem("tema") === "escuro");
+  const [menuOpen, setMenuOpen] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
   const reset = () => {
     setSessionExpired(false);
@@ -118,10 +121,12 @@ function App() {
         data.data.pix_lookup_enabled));
   return (
     <div className={"shell " + (dark ? "dark" : "")}>
+      <a className="skip-link" href="#conteudo">Ir para o conteúdo</a>
       <aside>
         <Brand />
+        <button className="menu-toggle" aria-expanded={menuOpen} aria-controls="navegacao" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X size={20} /> : <Menu size={20} />} {menuOpen ? "Fechar menu" : "Menu"}</button>
         <div className="navgroup">ÁREA FINANCEIRA</div>
-        <nav>
+        <nav id="navegacao" aria-label="Navegação principal" className={menuOpen ? "open" : ""}>
           {[
             { name: "Visão geral", icon: LayoutDashboard },
             { name: "Extrato", icon: ListFilter },
@@ -147,7 +152,11 @@ function App() {
             <button
               aria-current={view === name ? "page" : undefined}
               key={name}
-              onClick={() => setView(name)}
+              onClick={() => {
+                setView(name);
+                setMenuOpen(false);
+                document.getElementById("conteudo")?.focus();
+              }}
             >
               <Icon size={18} />
               {name}
@@ -159,7 +168,7 @@ function App() {
           <p>
             {mode.data === "PRODUCTION"
               ? "Dados bancários do Inter"
-              : "Dados bancários fictícios"}
+              : mode.data === "SANDBOX" ? "Homologação bancária" : "Dados demonstrativos fictícios"}
           </p>
         </div>
       </aside>
@@ -182,7 +191,7 @@ function App() {
             </button>
           </div>
         </header>
-        <main className="content">
+        <main className="content" id="conteudo" tabIndex={-1}>
           {logout.error && (
             <p role="alert">Falha ao encerrar a sessão. Tente novamente.</p>
           )}
@@ -194,7 +203,7 @@ function App() {
             {(view === "Visão geral" || view === "Extrato") &&
               mode.data === "MOCK" && (
                 <span className="period">
-                  <CalendarDays size={16} /> Novembro de 2026
+                  <CalendarDays size={16} /> {data.data?.source === "MOCK" ? new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" }).format(new Date(data.data.as_of + "T12:00:00Z")) : "Base demonstrativa"}
                 </span>
               )}
           </div>

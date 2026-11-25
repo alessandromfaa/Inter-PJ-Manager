@@ -7,7 +7,7 @@ x-api: &api
     APP_HOST: 0.0.0.0
     APP_PORT: 8080
     APP_ENV: ${APP_ENV:-development}
-    APP_ORIGIN: ${APP_ORIGIN:-http://172.17.154.31:8080}
+    APP_ORIGIN: ${APP_ORIGIN:-http://127.0.0.1:8080}
     DATABASE_URL: postgresql://manager@db:5432/manager
     DB_PASSWORD_FILE: /run/secrets/db_app
     MFA_ENCRYPTION_KEY_FILE: /run/secrets/mfa_key
@@ -59,7 +59,7 @@ services:
       retries: 15
   web:
     build: ./frontend
-    ports: ["${APP_BIND_ADDRESS:-172.17.154.31}:${APP_PORT:-8080}:8080"]
+    ports: ["${APP_BIND_ADDRESS:-127.0.0.1}:${APP_PORT:-8080}:8080"]
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]

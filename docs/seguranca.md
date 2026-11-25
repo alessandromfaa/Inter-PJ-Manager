@@ -16,3 +16,10 @@ A Fase 1 destina-se ao uso local com dados bancários sintéticos. O banco persi
 Antes de habilitar um adaptador externo, concluir testes de contrato, mTLS, isolamento entre contas e ambientes e política de rotação de certificados. Antes de qualquer escrita bancária, concluir MFA, separação de funções, aprovação vinculada ao valor e destinatário, limites e reconciliação após falhas. A Fase 1 recusa ambas as flags de escrita.
 
 Definir política de retenção por classe de dado, base legal, responsáveis e processo para solicitações de titulares. Estabelecer expurgo controlado, segregação mais forte dos papéis PostgreSQL de migration e runtime, auditoria resistente à adulteração, cópias externas cifradas e alertas. Testes de carga, auditoria ASVS, validação de TLS do ambiente e recuperação de desastre integram a revisão de produção.
+
+
+## Revisão local de 25/11/2026
+
+A revisão estática confirmou guard de origem em POST, cookies protegidos, escopo por empresa, limite de concorrência Argon2, limitador de login no NGINX e exportação CSV com neutralização de fórmulas. As suítes locais são evidência de comportamento em MOCK, não substituem teste de invasão, auditoria ASVS nem homologação bancária.
+
+Antes de operação com dados reais permanecem: MFA efetivo para autenticação e ações autorizadas fora de MOCK; segregação das permissões de migration e execução no PostgreSQL; auditoria resistente à adulteração; monitoramento e resposta para bloqueios de conta ou tentativas distribuídas; backups cifrados fora do host e recuperação ensaiada; e revisão das regras do proxy quando houver outro balanceador à frente, pois a limitação de login usa o endereço observado pelo NGINX. A configuração de proxy e endereços confiáveis deve ser validada no destino, sem aceitar cabeçalhos de origem do cliente indiscriminadamente.

@@ -9,7 +9,7 @@ Atualizado em 25/11/2026. Este documento registra decisões duradouras confirmad
 - MOCK é o padrão de desenvolvimento. O adaptador Inter usa OAuth client credentials, mTLS e Rustls, validação TLS do servidor, token em cache por escopo, renovação concorrente controlada, limitadores de frequência e timeouts. Produção exige configuração explícita de leitura e origem HTTPS. Escritas e pagamentos reais permanecem bloqueados.
 - A fundação inclui Argon2id, sessões revogáveis em cookie HttpOnly/SameSite e Secure em produção, validação de origem, RBAC e auditoria. Credenciais, certificados e chaves ficam em arquivos privados locais ignorados pelo Git.
 - Recebimentos em MOCK guardam cobranças e recebimentos fictícios em tabelas próprias. Clientes pertencem à empresa e são compartilhados entre ambientes. Eventos persistem antes do processamento, têm chave de deduplicação e confirmação posterior da fonte. Cobrança aceita, em processamento, a receber e liquidada são estados diferentes.
-- O adaptador implementa consultas individuais de cobrança Pix e confirmações Pix/V3. Emissão Pix e V3 externas está limitada ao perfil opt-in de SANDBOX. O contrato e os scopes ficam registrados em `docs/inter-api-matrix.md`. Homologação externa continua necessária.
+- O adaptador implementa consultas individuais de cobrança Pix e confirmações Pix/V3, e consulta individual de recorrência Pix Automático restrita a SANDBOX com escopo `rec.read`. Emissão Pix e V3 externas está limitada ao perfil opt-in de SANDBOX. O contrato e os scopes ficam registrados em `docs/inter-api-matrix.md`. Homologação externa continua necessária.
 - O Compose E2E usa projeto, volume, empresa e arquivos de segredo próprios. Testes de navegador nunca devem compartilhar a base de clientes/sessões da instância local configurada com produção.
 - A configuração Playwright falha fechada fora da origem/conta E2E (`127.0.0.1:18080`, `admin@e2e.local`); o overlay força MOCK e desabilita escritas e pagamentos.
 - Segredos E2E são criados com `umask 077`; o fluxo recusa conjunto parcial para não divergir da senha persistida no volume.
@@ -17,6 +17,21 @@ Atualizado em 25/11/2026. Este documento registra decisões duradouras confirmad
 - `AGENTS.md` concentra orientações de trabalho no checkout; `docs/DEVLOG.md` registra trabalhos a partir do bootstrap documental, `docs/ROADMAP.md` separa fatos de propostas e `docs/plans/` destina-se a planos futuros.
 
 ## Soluções e limitações confirmadas
+
+- Em 25/11/2026 as migrations 6, 7, 9, 10 e 11 foram aplicadas, mediante autorização específica, à base local de leitura de produção após backup validado; versões 1–7 e 9–11 sem falha. A API antiga permaneceu em execução. A instalação local não tinha `secrets/mfa_key` no momento; preparar chave estável e protegida antes de eventual implantação da nova API, após avaliar credenciais MFA existentes.
+- O proxy HTTPS local usa `.tools/local-tls/nginx.conf` e encaminha ao frontend existente em `172.17.154.31:8080`; esse endereço é específico da máquina e deve ser reconferido se a publicação mudar.
+
+- Em 25/11/2026, migrations 6, 7, 9, 10 e 11 foram aplicadas e repetidas com sucesso pelo migrador SQLx sobre cópia do backup local de produção em PostgreSQL temporário sem rede, em tmpfs. Imagem de ensaio tinha migrations idênticas ao checkout. Isso não valida permissões de produção, desempenho, implantação nem homologação bancária; nenhuma migration foi aplicada à base de produção.
+
+- Em 25/11/2026, dump da instância local de leitura de produção foi restaurado em PostgreSQL temporário sem rede, com dados em tmpfs; uma empresa e migrations 1–5 sem falhas. A restauração usou `--no-owner --no-privileges` e não valida permissões, recuperação ponta a ponta ou RTO. A cópia temporária foi descartada. Checkout contém migrations posteriores 6, 7, 9, 10 e 11, que exigem autorização antes de aplicação na base de produção.
+
+- Modelo de backup diário usa timer systemd às 03:00 do fuso do host, com atraso aleatório até 15 minutos; wrapper exige projeto e arquivos Compose explícitos e usa flock. Na máquina local, o timer está instalado para o projeto `inter-pj-manager` de leitura de produção; cópia externa cifrada, alertas e política de retenção ainda são pendências. O serviço root executa scripts do checkout, cujo acesso deve ser restrito. Backup diário não satisfaz a meta financeira proposta de RPO 1 h.
+- Teste axe-core cobre telas principais, erros de login e formulários abertos em desktop/celular e tema escuro; verificação automatizada não substitui avaliação com tecnologias assistivas e usuários.
+
+- Compose usa loopback por padrão; CI E2E provisiona também a chave MFA. Origem HTTPS de produção é validada antes de conectar ou aplicar migrations. Inicialização ainda aplica migrations, que exigem autorização específica em produção.
+
+- Relatório CSV financeiro MOCK neutraliza prefixos de fórmula em planilhas e limita cada exportação a 10.000 linhas; solicitação maior retorna 413. O limite não substitui controle de volume de dados no banco.
+- Login de conta bloqueada usa resposta genérica e verificação Argon2 fictícia; NGINX limita a frequência por endereço. O bloqueio por conta ainda pode causar indisponibilidade sob ataque distribuído e requer monitoramento.
 
 - O cliente HTTP do frontend aceita corpo vazio para respostas 204 e para chamadas explicitamente marcadas `allowEmpty`. Chamadas tipadas que precisam de JSON falham com 502 de resposta incompleta.
 - O webhook usa certificado de cliente validado por CA, conta previamente vinculada e persistência antes do worker. Registro/configuração e homologação de callbacks no Inter ainda dependem de credenciais e ambiente autorizados.
@@ -41,6 +56,8 @@ Atualizado em 25/11/2026. Este documento registra decisões duradouras confirmad
 - A licença do código próprio aguarda definição do proprietário. O sandbox oficial ainda não foi homologado nesta sessão.
 
 ## Decisões do proprietário
+
+- A outra estação terá banco e instalação novos e usará os arquivos da integração bancária existente por transferência privada. Usuários, histórico, sessões e UUIDs locais são novos; credenciais e chaves nunca entram no Git. A ativação de leitura de produção depende de HTTPS e autorização no destino.
 
 - O trabalho ocorre no checkout local. SEFIN está fora do escopo.
 - A identidade visual da empresa e a personalização com a logo devem ficar para a etapa final de implantação.

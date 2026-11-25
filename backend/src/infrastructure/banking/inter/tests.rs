@@ -37,6 +37,7 @@ async fn token(
                     | "boleto-cobranca.read"
                     | "cob.write"
                     | "boleto-cobranca.write"
+                    | "rec.read"
             )
         )
         || fields.get("client_id").map(String::as_str) != Some("cliente-teste")
@@ -119,6 +120,21 @@ async fn statement(
  "idTransacao":id,"dataTransacao":params["dataFim"],"tipoTransacao":"PIX","tipoOperacao":if last{"D"}else{"C"},"valor":"145.38"}]})).into_response()
 }
 const PIX_ID: &str = "TESTE00000000000000000000001";
+const REC_ID: &str = "RR1234567820240115abcdefghijk";
+async fn recurrence(
+    State(state): State<Arc<MockState>>,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    h: HeaderMap,
+) -> Response {
+    if !authorized_scope(&h, "rec.read") {
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    let scenario = state.scenario.load(SeqCst);
+    if id != REC_ID {
+        return StatusCode::NOT_FOUND.into_response();
+    }
+    Json(json!({"idRec": if scenario == 31 { "RR1234567820240115abcdefghijX" } else { REC_ID }, "status": if scenario == 32 { "INVALIDA" } else { "APROVADA" }})).into_response()
+}
 async fn pix(
     State(state): State<Arc<MockState>>,
     axum::extract::Path(txid): axum::extract::Path<String>,
@@ -192,6 +208,7 @@ async fn server(scenario: usize) -> (ClientInter, Arc<MockState>) {
         .route("/banking/v2/saldo", get(balance))
         .route("/pix/v2/cob/{txid}", get(pix).put(issue_pix))
         .route("/pix/v2/pix/{e2e}", get(received_pix))
+        .route("/pix/v2/rec/{id}", get(recurrence))
         .route("/cobranca/v3/cobrancas", post(issue_bill))
         .route("/cobranca/v3/cobrancas/{id}", get(received_bill))
         .route("/banking/v2/extrato/completo", get(statement))
@@ -217,6 +234,28 @@ async fn server(scenario: usize) -> (ClientInter, Arc<MockState>) {
         .fast_mock(),
         state,
     )
+}
+#[tokio::test]
+async fn consulta_recorrencia_valida_identificador_escopo_e_resposta() {
+    let (client, state) = server(0).await;
+    assert_eq!(client.recurrence(REC_ID).await.unwrap().status, "APROVADA");
+    assert_eq!(client.recurrence(REC_ID).await.unwrap().id_rec, REC_ID);
+    assert_eq!(state.grants.load(SeqCst), 1);
+    assert!(matches!(
+        client.recurrence("RR1234567820240115abcdefghijX").await,
+        Err(BankError::RecurrenceNotFound)
+    ));
+    assert!(matches!(
+        client.recurrence("RRinválido").await,
+        Err(BankError::Period)
+    ));
+    for scenario in [31, 32] {
+        let (client, _) = server(scenario).await;
+        assert!(matches!(
+            client.recurrence(REC_ID).await,
+            Err(BankError::Contract)
+        ));
+    }
 }
 #[tokio::test]
 async fn cache_concorrente_e_renovacao() {

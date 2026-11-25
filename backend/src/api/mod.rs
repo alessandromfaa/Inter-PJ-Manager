@@ -36,6 +36,7 @@ impl IntoResponse for Error {
             Self::Bank(err) => {
                 let status = match err {
                     BankError::PixNotFound => StatusCode::NOT_FOUND,
+                    BankError::RecurrenceNotFound => StatusCode::NOT_FOUND,
                     BankError::PixConflict => StatusCode::CONFLICT,
                     BankError::PixDisabled => StatusCode::FORBIDDEN,
                     BankError::Account => StatusCode::FORBIDDEN,
@@ -57,6 +58,10 @@ impl IntoResponse for Error {
             Self::Conflict => (
                 StatusCode::CONFLICT,
                 "O estado atual ou os dados da solicitação impedem esta operação.",
+            ),
+            Self::Invalid(StatusCode::PAYLOAD_TOO_LARGE) => (
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Limite excedido. Reduza o período ou o tamanho da solicitação.",
             ),
             Self::Invalid(status) => (
                 status,
@@ -184,6 +189,37 @@ pub async fn audit(State(a): State<App>, h: HeaderMap) -> Result<Json<Vec<Audit>
         return Err(Error::Forbidden);
     }
     Ok(Json(query("SELECT action,to_char(at AT TIME ZONE 'UTC','YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') at FROM audit_logs WHERE company_id=$1 ORDER BY id DESC LIMIT 100").bind(u.company_id).map(|row: sqlx_postgres::PgRow| Audit { action: row.get("action"), at: row.get("at") }).fetch_all(&a.db).await?))
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RecurrenceLookup {
+    id_rec: String,
+}
+pub async fn recurrence(
+    State(a): State<App>,
+    h: HeaderMap,
+    body: std::result::Result<Json<RecurrenceLookup>, axum::extract::rejection::JsonRejection>,
+) -> Result<Json<crate::infrastructure::banking::inter::Recurrence>> {
+    let user = auth::identity(&a, &h).await?;
+    if !user
+        .roles
+        .iter()
+        .any(|r| matches!(r.as_str(), "ADMIN" | "VIEWER" | "OPERATOR"))
+    {
+        return Err(Error::Forbidden);
+    }
+    let Json(input) = body.map_err(|e| Error::Invalid(e.status()))?;
+    if !crate::infrastructure::banking::inter::valid_recurrence_id(&input.id_rec) {
+        return Err(Error::Invalid(StatusCode::UNPROCESSABLE_ENTITY));
+    }
+    let result = a
+        .bank
+        .recurrence(user.company_id, &input.id_rec)
+        .await
+        .map_err(Error::Bank)?;
+    query("INSERT INTO audit_logs(company_id,actor,action) VALUES($1,$2,'Recorrência Pix Automático consultada em SANDBOX')").bind(user.company_id).bind(user.id).execute(&a.db).await?;
+    Ok(Json(result))
 }
 
 #[derive(serde::Deserialize)]

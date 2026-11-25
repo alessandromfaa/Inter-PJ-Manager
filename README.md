@@ -36,6 +36,8 @@ podman compose ps -a
 
 O mesmo manifesto é usado pelos dois motores. Em sistemas com SELinux, configure o contexto dos arquivos montados conforme as regras locais. Use a mesma identidade e motor durante backup e restauração.
 
+Para instalar em outra estação com banco novo e posteriormente configurar as credenciais Inter existentes, consulte [Outra estação com banco novo](docs/inter.md#outra-estação-com-banco-novo).
+
 ## Funcionalidades disponíveis
 
 - Login com Argon2id, encerramento de sessão, bloqueio temporário após falhas e proteção de origem.

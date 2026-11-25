@@ -48,7 +48,9 @@ O script usa pg_dump em formato custom, exige arquivo não vazio, verifica o cat
 
 Antes de habilitar operação contínua, atribua responsáveis e canais para alertas de indisponibilidade, falha de backup, espaço em disco e expiração de certificados. Monitore a idade do último backup e valide periodicamente restaurações em banco isolado. As metas de RTO/RPO acima orientam o planejamento, mas precisam ser aprovadas operacionalmente, medidas em ensaio e sustentadas por frequência de backup/recuperação compatível. Até definir obrigações legais, prazo de retenção e capacidade cifrada, mantenha os backups sob controle manual e não automatize descarte; o script atual não exclui nem rotaciona arquivos. Registre data, operador, resultado do catálogo e resultado do ensaio de restauração em controle operacional sem dados pessoais. Não inclua métricas com dados bancários, identificadores pessoais ou nomes de empresas.
 
-Para buscar o RPO financeiro proposto de 1 hora, agende `./infrastructure/scripts/backup.sh` a cada hora em um host confiável, com `flock` para impedir execuções simultâneas. Use o mesmo diretório de backups protegido, configure alerta se a execução falhar ou se o backup válido mais recente ultrapassar 60 minutos e acompanhe espaço livre. O agendador deve carregar o ambiente/seleção Compose correto, registrar saída sem segredos e não apagar backups. Essa frequência é uma recomendação de desenho, não está instalada pelo repositório nem garante RPO por si só. Até existir armazenamento cifrado fora do host e política aprovada de retenção, mantenha operação controlada e não considere a meta cumprida. Para configuração/aplicação, preserve também os artefatos versionados e inventário de configuração; o backup PostgreSQL isolado não cobre esses componentes.
+O modelo `infrastructure/systemd/inter-pj-manager-backup.timer` agenda backup diariamente às 03:00 no fuso do host, com atraso aleatório de até 15 minutos e execução posterior se o host estava desligado. O serviço usa `backup-diario.sh`, que exige projeto e arquivos Compose explícitos e impede execuções concorrentes do mesmo projeto com `flock`. O modelo supõe checkout em `/opt/inter-pj-manager`; ajuste `WorkingDirectory` e `ExecStart` ao destino antes de instalar. Prepare `/etc/inter-pj-manager/backup.env` a partir de `infrastructure/systemd/backup.env.example`, apontando `COMPOSE_PROJECT_NAME` e `COMPOSE_FILE` para a instalação autorizada. O usuário que executa a unidade precisa acessar o motor e o diretório protegido de backup.
+
+Nesta máquina, o timer foi instalado e habilitado para o projeto local `inter-pj-manager`, com checkout em `/home/alessandro/codex/inter` e arquivo `/etc/inter-pj-manager/backup.env`. O serviço é executado como root e chama os scripts do checkout: mantenha o checkout e seu acesso restritos e revise alterações nesses scripts antes de aceitá-las. Em outro host, ajuste e valide o modelo com `systemd-analyze verify` antes da instalação e habilitação. Monitore falhas e idade do último backup, copie os arquivos para armazenamento externo cifrado e ensaie restaurações isoladas. O script não exclui backups. Backup diário pode perder até mais de um dia de dados em caso de falha e não atende à meta financeira proposta de RPO de 1 hora; essa meta exigiria frequência e controles adicionais.
 
 Para exercitar a recuperação, confira o SHA-256 do dump contra o manifesto e escolha um nome novo em uma instância local isolada. O `createdb` falha se o banco já existir. Execute a restauração somente após a criação bem-sucedida, confira migrations e tabelas e compare totais não sensíveis. Não aponte o `pg_restore` para `manager` nem para qualquer banco com dados que devam ser preservados.
 
@@ -60,6 +62,18 @@ docker compose exec -T db psql -U postgres -d ensaio_restauracao -c 'SELECT coun
 ```
 
 Confirme as versões em _sqlx_migrations, totais e vínculos por empresa. Revogue todas as sessões recuperadas antes de permitir acesso ao sistema restaurado. Guarde o material de integração em cofre separado. Uma recuperação em produção exige autorização, plano de corte e verificação do estado das ordens junto ao banco.
+
+## Pré-requisitos para liberação de produção
+
+A configuração padrão é de desenvolvimento e escuta em loopback. A existência da branch ou de uma imagem compilada não comprova prontidão de produção. Antes de qualquer publicação, confirme e registre:
+
+- Ambiente de destino, responsáveis, acesso restrito, origem HTTPS exata e proxy TLS confiável; API e PostgreSQL devem permanecer privados.
+- Inventário das migrations já aplicadas, backup íntegro, ensaio de restauração isolado e plano de atualização/retorno. A inicialização da API e o bootstrap aplicam migrations: a execução em produção requer autorização específica.
+- Backup periódico, cópia externa cifrada, alertas e retenção aprovados; as metas propostas de RPO/RTO ainda não estão comprovadas para produção.
+- Credenciais e certificados do Inter provisionados com escopos autorizados, vínculo da empresa e homologação de cada operação externa aplicável. Escritas e pagamentos reais continuam indisponíveis; MFA e aprovações existentes são de demonstração em MOCK.
+- CI no commit candidato, auditorias de dependências, testes de carga e revisão de segurança e acessibilidade adequados ao ambiente; controle de contas e recuperação operacional documentados.
+
+Não exponha o serviço nem execute migrations, deploy, transferência ou alteração de dados reais sem autorização específica. Testes, lockfiles, documentação e CI são necessários à manutenção e verificação da versão e devem permanecer versionados; segredos, certificados, dumps, dependências instaladas e artefatos gerados não pertencem ao Git.
 
 ## Atualização e HTTPS
 
@@ -73,7 +87,7 @@ A publicação em produção depende da Fase 6. Para ensaio de HTTPS, use proxy 
 |---|---|
 | Bootstrap encerra com erro | Confira as permissões e o comprimento dos arquivos de segredo, a saúde do PostgreSQL e o log do serviço bootstrap. |
 | Login recebe 403 | Compare protocolo, nome e porta do navegador com APP_ORIGIN. Utilize a URL do README. |
-| Login recebe 429 | Espere a janela de bloqueio de 15 minutos após cinco falhas por conta ou o intervalo do limitador no proxy. |
+| Login recusado após tentativas | O bloqueio por conta dura 15 minutos após cinco falhas e retorna erro genérico de credenciais; o limitador do proxy pode retornar 429. Investigue bloqueios repetidos e monitore o acesso. |
 | Usuário sem acesso à auditoria | Confira ADMIN ou AUDITOR na sessão. Os papéis são lidos no servidor. |
 | /ready falha | Confira conexões, espaço em disco e migrations. Use docker compose ps -a e logs dos serviços locais. |
 | Alteração da senha em secrets/admin sem efeito | O bootstrap cria o primeiro administrador somente em banco vazio. Alterar o arquivo após a criação não altera o hash persistido. |

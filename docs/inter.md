@@ -51,6 +51,18 @@ Em produção, o proprietário deve configurar explicitamente INTER_ENV=producti
 
 A importação divide intervalos volumosos em períodos menores. Mais de 10 mil operações num único dia, mais de 100 mil por importação ou duração superior a quatro minutos encerram a tentativa sem avançar o checkpoint. O uso de scroll para esse perfil de volume permanece pendente. O painel externo utiliza os componentes efetivamente informados pelo Inter. Dados de cobranças, pagamentos e conciliação entram nas fases seguintes.
 
+## Outra estação com banco novo
+
+A instalação nova começa sem histórico, usuários, sessões, eventos ou dados financeiros da máquina anterior. O bootstrap gera nova empresa e administrador; os UUIDs de empresa e de conta desta instalação são próprios e não devem ser copiados da base anterior. A leitura da conta Inter após configuração usa as credenciais bancárias da integração autorizada, mas os registros locais permanecem independentes. Evite executar duas instâncias de leitura simultaneamente com as mesmas credenciais sem coordenar as cotas do Inter.
+
+1. Obtenha a versão aprovada do repositório e inicie uma instalação isolada em MOCK seguindo o README. Defina o e-mail e o nome da empresa antes do bootstrap. Guarde em local seguro a senha gerada e a nova chave `secrets/mfa_key`; não copie senhas de banco, sessões nem a chave MFA da estação antiga para um banco novo.
+2. Entre no painel local e obtenha `company_id` pela resposta autenticada de `/api/session`, sem compartilhar a resposta. Gere um novo UUID para `INTER_ACCOUNT_ID` e mantenha-o estável; use o identificador da empresa nova em `INTER_COMPANY_ID`. Nunca use CPF/CNPJ ou número da conta como UUID.
+3. Transfira `client_id`, `client_secret`, `cert.pem` e `key.pem` da integração Inter autorizada por canal privado para `INTER_CREDENTIALS_ROOT/production`, fora do Git. Confirme validade, titularidade, permissões e legibilidade pelo UID 65532; não exponha conteúdo em terminal compartilhado, histórico ou logs.
+4. Antes de habilitar a leitura real, instale e valide um proxy HTTPS confiável acessível somente conforme o escopo autorizado; configure `APP_ENV=production`, `APP_ORIGIN` com a origem HTTPS exata sem barra final, `INTER_ENV=production`, `ENABLE_BANK_READS=true`, UUIDs novos e número de conta autorizado. Mantenha `ENABLE_BANK_WRITES=false` e `ENABLE_REAL_PAYMENTS=false`. O proxy local de outra máquina e arquivos ignorados em `.tools` não são transferidos pelo Git.
+5. Configure backup diário, cópia externa cifrada e alertas nessa estação; preserve separadamente a nova chave MFA. Faça testes em MOCK e valide a configuração sem expor serviços nem consultar a conta real até a autorização aplicável. Uma instalação real requer revisão do ambiente e autorização para ativação/publicação; a homologação bancária continua separada do teste MOCK.
+
+A `main` deve conter o commit aprovado antes do clone; o diretório de trabalho não commitado da estação anterior não acompanha o Git.
+
 ## Verificar acesso de leitura com conta de produção
 
 No Internet Banking PJ, abra **Integrar → Minhas Integrações** e confira a situação da integração. Quando estiver em **Novo**, abra **Ações** (três pontos) e escolha **Download chave e certificado**. Guarde o certificado `.crt`, a chave `.key` e as duas credenciais da mesma integração em armazenamento privado. O Inter disponibiliza o download uma única vez. Se a integração já estiver ativa, procure os arquivos com o responsável pelo cadastro ou no cofre da empresa. Se os arquivos foram perdidos, crie uma nova integração de leitura e use os quatro itens emitidos para ela. [Instruções de download do Inter](https://ajuda.inter.co/conta-digital-pessoa-juridica/como-faco-o-download-do-certificado-e-credenciais-da-minha-api)

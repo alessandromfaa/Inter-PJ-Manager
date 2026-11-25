@@ -27,6 +27,7 @@ pub struct ClientInter {
     billing_token: Mutex<Option<Token>>,
     issue_pix_token: Mutex<Option<Token>>,
     issue_bill_token: Mutex<Option<Token>>,
+    recurrence_token: Mutex<Option<Token>>,
     billing: Pacer,
     pix: Pacer,
     oauth: Pacer,
@@ -40,6 +41,7 @@ enum ReadApi {
     Billing,
     IssuePix,
     IssueBill,
+    Recurrence,
 }
 impl ReadApi {
     fn scope(self) -> &'static str {
@@ -50,6 +52,7 @@ impl ReadApi {
             Self::Billing => "boleto-cobranca.read",
             Self::IssuePix => "cob.write",
             Self::IssueBill => "boleto-cobranca.write",
+            Self::Recurrence => "rec.read",
         }
     }
 }
@@ -105,6 +108,7 @@ impl ClientInter {
             billing_token: Mutex::new(None),
             issue_pix_token: Mutex::new(None),
             issue_bill_token: Mutex::new(None),
+            recurrence_token: Mutex::new(None),
             billing: Pacer::new(Duration::from_secs(6)),
             // A cadência conservadora também respeita as 10 consultas/min do sandbox.
             pix: Pacer::new(Duration::from_secs(6)),
@@ -185,6 +189,7 @@ impl ClientInter {
             ReadApi::Billing => &self.billing_token,
             ReadApi::IssuePix => &self.issue_pix_token,
             ReadApi::IssueBill => &self.issue_bill_token,
+            ReadApi::Recurrence => &self.recurrence_token,
         }
     }
     async fn bearer(&self, api: ReadApi) -> Result<Zeroizing<String>, BankError> {
@@ -235,7 +240,9 @@ impl ClientInter {
             let token = self.bearer(api).await?;
             let pacer = match api {
                 ReadApi::Banking => &self.bank,
-                ReadApi::Pix | ReadApi::Received | ReadApi::IssuePix => &self.pix,
+                ReadApi::Pix | ReadApi::Received | ReadApi::IssuePix | ReadApi::Recurrence => {
+                    &self.pix
+                }
                 ReadApi::Billing | ReadApi::IssueBill => &self.billing,
             };
             let result = self
@@ -258,6 +265,9 @@ impl ClientInter {
             }
             if matches!(api, ReadApi::Pix) && matches!(result, Err(BankError::Http(404))) {
                 return Err(BankError::PixNotFound);
+            }
+            if matches!(api, ReadApi::Recurrence) && matches!(result, Err(BankError::Http(404))) {
+                return Err(BankError::RecurrenceNotFound);
             }
             return result.map(|(value, _)| value);
         }
@@ -364,6 +374,32 @@ impl ClientInter {
         let path = format!("/pix/v2/cob/{}", txid.as_str());
         let response: super::contract::PixResponse = self.read(ReadApi::Pix, &path, &[]).await?;
         response.into_charge(&txid, mode)
+    }
+    pub(super) async fn recurrence(&self, id: &str) -> Result<super::Recurrence, BankError> {
+        if !super::valid_recurrence_id(id) {
+            return Err(BankError::Period);
+        }
+        #[derive(Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Response {
+            id_rec: String,
+            status: String,
+        }
+        let response: Response = self
+            .read(ReadApi::Recurrence, &format!("/pix/v2/rec/{id}"), &[])
+            .await?;
+        if response.id_rec != id
+            || !matches!(
+                response.status.as_str(),
+                "CRIADA" | "APROVADA" | "REJEITADA" | "EXPIRADA" | "CANCELADA"
+            )
+        {
+            return Err(BankError::Contract);
+        }
+        Ok(super::Recurrence {
+            id_rec: response.id_rec,
+            status: response.status,
+        })
     }
     pub async fn balance(&self) -> Result<Balance, BankError> {
         self.read::<BalanceResponse>(ReadApi::Banking, "/banking/v2/saldo", &[])

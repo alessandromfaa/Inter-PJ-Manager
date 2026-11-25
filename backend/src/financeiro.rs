@@ -231,8 +231,11 @@ pub async fn report_csv(
          FROM mock_financial_items i
          LEFT JOIN mock_financial_categories c ON (c.company_id,c.id)=(i.company_id,i.category_id)
          LEFT JOIN mock_cost_centers cc ON (cc.company_id,cc.id)=(i.company_id,i.cost_center_id)
-         WHERE i.company_id=$1 AND i.due_on BETWEEN $2 AND $3 ORDER BY i.due_on,i.id",
+         WHERE i.company_id=$1 AND i.due_on BETWEEN $2 AND $3 ORDER BY i.due_on,i.id LIMIT 10001",
     ).bind(identity.company_id).bind(period.inicio).bind(period.fim).fetch_all(&app.db).await?;
+    if rows.len() > 10_000 {
+        return Err(Error::Invalid(StatusCode::PAYLOAD_TOO_LARGE));
+    }
     let mut csv = String::from(
         "tipo;parte;descricao;valor_centavos;vencimento;situacao;categoria;centro_custo\r\n",
     );
@@ -263,7 +266,28 @@ pub async fn report_csv(
 }
 
 fn csv_field(value: &str) -> String {
-    format!("\"{}\"", value.replace('"', "\"\""))
+    let dangerous = value
+        .trim_start_matches(|c: char| c.is_whitespace() || c.is_control())
+        .starts_with(['=', '+', '-', '@']);
+    let prefix = if dangerous { "'" } else { "" };
+    format!("\"{}{}\"", prefix, value.replace('"', "\"\""))
+}
+
+#[cfg(test)]
+mod csv_tests {
+    use super::csv_field;
+
+    #[test]
+    fn protects_spreadsheet_formulas_and_preserves_csv_escaping() {
+        for value in ["=1+1", "  +1", "\t@cmd", "\r-1"] {
+            assert!(csv_field(value).starts_with("\"'"));
+        }
+        assert_eq!(
+            csv_field("Acme \"Sul\"; filial"),
+            "\"Acme \"\"Sul\"\"; filial\""
+        );
+        assert_eq!(csv_field("123"), "\"123\"");
+    }
 }
 
 type ReportRow = (

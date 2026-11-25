@@ -118,6 +118,19 @@ async fn sessoes_permissoes_e_segregacao() -> Result<()> {
             .status(),
         StatusCode::OK
     );
+    query("INSERT INTO mock_financial_items(id,company_id,creator_id,kind,party_name,description,amount_cents,due_on) VALUES($1,$2,$3,'PAGAR',' =1+1','Teste',100,'2026-11-25')")
+        .bind(Uuid::new_v4()).bind(tenant).bind(user).execute(&pool).await?;
+    let report = "/api/mock/financeiro/relatorio.csv?inicio=2026-11-01&fim=2026-11-30";
+    let response = chamada(&api, report, cookie, None, origin).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let csv = String::from_utf8(to_bytes(response.into_body(), 65536).await?.to_vec())?;
+    assert!(csv.contains("\"' =1+1\""));
+    query("INSERT INTO mock_financial_items(id,company_id,creator_id,kind,party_name,description,amount_cents,due_on) SELECT gen_random_uuid(),$1,$2,'PAGAR','Teste','Limite CSV',100,'2026-11-25' FROM generate_series(1,10000)")
+        .bind(tenant).bind(user).execute(&pool).await?;
+    assert_eq!(
+        chamada(&api, report, cookie, None, origin).await.status(),
+        StatusCode::PAYLOAD_TOO_LARGE
+    );
     assert_eq!(
         chamada(&api, "/api/auditoria", cookie, None, origin)
             .await
@@ -229,7 +242,7 @@ async fn sessoes_permissoes_e_segregacao() -> Result<()> {
         chamada(&api, "/api/login", "", Some(creds), origin)
             .await
             .status(),
-        StatusCode::TOO_MANY_REQUESTS
+        StatusCode::UNAUTHORIZED
     );
     Ok(())
 }

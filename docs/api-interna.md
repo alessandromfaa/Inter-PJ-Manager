@@ -107,6 +107,8 @@ Os registros são demonstrativos e não alteram saldo bancário nem enviam pagam
 
 ## Pix Automático demonstrativo em MOCK
 
+Em SANDBOX, `POST /api/sandbox/pix-automatico/consultar` recebe `id_rec` oficial e devolve apenas identificador e status. Exige sessão ADMIN, OPERATOR ou VIEWER da empresa vinculada e scope `rec.read`. A consulta é auditada; credenciais e homologação Inter continuam pendentes.
+
 Estas rotas só são registradas quando `INTER_ENV=mock`; usam a empresa da sessão, validação comum de origem, valores em centavos exatos e auditoria transacional. Não coletam CPF/CNPJ ou dados bancários e não enviam cobranças nem pagamentos.
 
 | Rota | Permissão e resultado |
@@ -120,3 +122,6 @@ Estas rotas só são registradas quando `INTER_ENV=mock`; usam a empresa da sess
 | POST /api/mock/pix-automatico/cobrancas/liquidar | ADMIN ou OPERATOR; marca uma cobrança como liquidada em simulação e gera identificador sintético; repetição retorna o mesmo resultado final. |
 
 Escopo funcional do MOCK: um valor fixo por recorrência; competências são lançadas manualmente e a aplicação não envia notificações ao pagador. Não converte dados MOCK em chamadas externas: o contrato do Inter separa `POST /pix/v2/rec` (cadastro da recorrência), `POST /pix/v2/solicrec` (solicitação de consentimento direcionada à conta do pagador) e `POST /pix/v2/cobr` (cobranças após aceite). Requer scopes `rec.write`, `solicrec.write`, `cobr.write` e leitura/callbacks correspondentes. A API exige identificadores oficiais e dados de CPF/CNPJ/conta que a tela MOCK intencionalmente não guarda. Implementação externa depende de definir tratamento protegido e consentimento para esses dados, scopes/credenciais Inter e homologação no sandbox. A elegibilidade foi informada pelo proprietário, sem confirmação independente do banco.
+
+
+O relatório financeiro CSV MOCK aceita até 10.000 linhas por exportação; se o limite for excedido, retorna 413 e o período deve ser reduzido. Campos com prefixos interpretáveis como fórmulas por planilhas recebem apóstrofo preventivo.

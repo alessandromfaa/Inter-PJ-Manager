@@ -1,0 +1,10 @@
+[Unit]
+Description=Backup diário do Inter PJ Manager
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/inter-pj-manager
+EnvironmentFile=/etc/inter-pj-manager/backup.env
+ExecStart=/opt/inter-pj-manager/infrastructure/scripts/backup-diario.sh
+UMask=0077

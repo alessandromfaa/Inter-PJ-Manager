@@ -150,6 +150,19 @@ async fn main() -> Result<()> {
         )
         .init();
     let secure = config::validate()?;
+    let origin = config::var("APP_ORIGIN", "http://127.0.0.1:8080");
+    if secure {
+        let valid_origin = origin.parse::<axum::http::Uri>().ok().is_some_and(|uri| {
+            uri.scheme_str() == Some("https")
+                && uri
+                    .authority()
+                    .is_some_and(|authority| !authority.as_str().contains('@'))
+                && uri.path() == "/"
+                && uri.query().is_none()
+                && !origin.ends_with('/')
+        });
+        ensure!(valid_origin, "Produção exige origem HTTPS válida");
+    }
     match env::args().nth(1).as_deref() {
         Some("verificar-acesso-saldo") => {
             return infrastructure::banking::inter::verify_balance_access().await;
@@ -179,11 +192,6 @@ async fn main() -> Result<()> {
         None | Some("receber-webhooks") => (),
         _ => anyhow::bail!("Comando desconhecido"),
     }
-    let origin = config::var("APP_ORIGIN", "http://127.0.0.1:8080");
-    ensure!(
-        !secure || origin.starts_with("https://"),
-        "Produção exige origem HTTPS"
-    );
     let bank: Arc<dyn BankProvider> = if config::var("INTER_ENV", "mock") == "mock" {
         Arc::new(MockBank(db.clone()))
     } else {
@@ -222,6 +230,12 @@ async fn main() -> Result<()> {
 
 fn router(app: App) -> Router {
     let mut routes = Router::new();
+    if app.bank.environment() == "SANDBOX" {
+        routes = routes.route(
+            "/api/sandbox/pix-automatico/consultar",
+            post(api::recurrence),
+        );
+    }
     if app.bank.sandbox_issuance() {
         routes = routes.route(
             "/api/sandbox/recebimentos/emitir",

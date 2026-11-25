@@ -534,3 +534,55 @@ th:last-child {
   border: 1px solid var(--border);
   border-radius: 7px;
 }
+
+/* Navegação, formulários e superfícies compartilhadas. */
+.skip-link {
+  position: fixed;
+  top: -5rem;
+  left: 1rem;
+  z-index: 10;
+  padding: .7rem 1rem;
+  background: #fff;
+  color: #153d34;
+  border-radius: .5rem;
+}
+.skip-link:focus { top: 1rem; }
+.menu-toggle { display: none; }
+button { border: 0; background: transparent; color: inherit; }
+button.outline {
+  border: 1px solid var(--border, #a9b6b0);
+  border-radius: 8px;
+  padding: .65rem .9rem;
+  background: var(--surface, #fff);
+}
+button:not(:disabled):hover { filter: brightness(.94); }
+button:disabled { cursor: not-allowed; }
+.form-grid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 210px), 1fr));
+  align-items: end;
+}
+.form-grid label, .actions label { display: grid; gap: .35rem; }
+.form-grid input, .form-grid select, .actions input, .actions select { width: 100%; margin: 0; }
+.actions { display: flex; flex-wrap: wrap; align-items: end; gap: .75rem; }
+details > summary { cursor: pointer; font-size: 1.15rem; font-weight: 650; }
+details > p { margin-top: .8rem; }
+.panel { box-shadow: 0 4px 20px rgb(20 50 36 / 4%); }
+.dark .panel { box-shadow: none; }
+.content:focus { outline: none; }
+.content:focus-visible { outline: 3px solid #dd943b; outline-offset: -3px; }
+.feedback { padding: .85rem 1rem; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+@media (max-width: 700px) {
+  .shell aside { position: relative; }
+  .menu-toggle { display: flex; justify-self: end; align-self: center; padding: .6rem; }
+  .asidefoot { grid-column: 1 / -1; grid-row: auto; }
+  nav { display: none; }
+  nav.open { display: flex; flex-direction: column; align-items: stretch; }
+  nav button { width: 100%; }
+  .actions { align-items: stretch; flex-direction: column; }
+  .actions button { justify-content: center; }
+}
+
+@media (max-width: 700px) {
+  .panelhead { flex-direction: column; align-items: stretch; }
+  .panelhead .actions { width: 100%; }
+}

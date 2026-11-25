@@ -1,0 +1,11 @@
+[Unit]
+Description=Agendamento diário de backup do Inter PJ Manager
+
+[Timer]
+OnCalendar=*-*-* 03:00:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=inter-pj-manager-backup.service
+
+[Install]
+WantedBy=timers.target

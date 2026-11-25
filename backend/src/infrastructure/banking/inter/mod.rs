@@ -30,6 +30,8 @@ pub enum BankError {
     Account,
     #[error("Cobrança Pix não encontrada na conta.")]
     PixNotFound,
+    #[error("Recorrência Pix Automático não encontrada na conta.")]
+    RecurrenceNotFound,
     #[error("Consulta de cobranças Pix desabilitada para esta integração.")]
     PixDisabled,
     #[error(
@@ -70,6 +72,7 @@ impl BankError {
     pub fn code(&self) -> &'static str {
         match self {
             Self::PixNotFound => "COBRANCA_AUSENTE",
+            Self::RecurrenceNotFound => "RECORRENCIA_AUSENTE",
             Self::PixConflict => "EMISSAO_DIVERGENTE",
             Self::PixDisabled => "PIX_DESABILITADO",
             Self::Account => "CONTA",
@@ -96,6 +99,18 @@ pub struct InterBank {
     mode: &'static str,
     client: ClientInter,
     expires: OffsetDateTime,
+}
+#[derive(serde::Serialize)]
+pub struct Recurrence {
+    pub id_rec: String,
+    pub status: String,
+}
+pub fn valid_recurrence_id(id: &str) -> bool {
+    let bytes = id.as_bytes();
+    bytes.len() == 29
+        && (id.starts_with("RR") || id.starts_with("RN"))
+        && bytes[2..18].iter().all(u8::is_ascii_digit)
+        && bytes[18..].iter().all(u8::is_ascii_alphanumeric)
 }
 fn material(path: &Path, private: bool) -> Result<Zeroizing<Vec<u8>>> {
     let file = File::open(path).context("Arquivo da integração inacessível")?;
@@ -278,6 +293,18 @@ impl InterBank {
 impl BankProvider for InterBank {
     fn environment(&self) -> &'static str {
         self.mode
+    }
+    async fn recurrence(&self, company: Uuid, id: &str) -> Result<Recurrence, BankError> {
+        self.tenant(company)?;
+        if self.mode != "SANDBOX" {
+            return Err(BankError::PixDisabled);
+        }
+        if self.expires <= OffsetDateTime::now_utc() {
+            return Err(BankError::Certificate);
+        }
+        tokio::time::timeout(Duration::from_secs(60), self.client.recurrence(id))
+            .await
+            .map_err(|_| BankError::Timeout)?
     }
     async fn pix_charge(
         &self,

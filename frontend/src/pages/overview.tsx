@@ -71,8 +71,8 @@ export function Ledger({
             </tr>
           </thead>
           <tbody>
-            {(full ? rows : rows.slice(0, 4)).map((e) => (
-              <tr key={e.description}>
+            {(full ? rows : rows.slice(0, 4)).map((e, index) => (
+              <tr key={`${e.date}:${e.description}:${index}`}>
                 <td>
                   <span className={"trans " + (e.cents > 0 ? "credit" : "")}>
                     {e.cents > 0 ? (
@@ -101,7 +101,7 @@ export function Ledger({
 export function Overview({ s, open }: { s: Snapshot; open: () => void }) {
   let saldo = s.opening;
   const points = [
-    { day: "01 nov.", saldo },
+    { day: date(s.as_of.slice(0, 7) + "-01"), saldo },
     ...s.entries
       .slice()
       .reverse()
@@ -148,7 +148,7 @@ export function Overview({ s, open }: { s: Snapshot; open: () => void }) {
           </div>
           <span className="legend">Saldo disponível</span>
         </div>
-        <div className="chart">
+        <div className="chart" role="img" aria-label={`Gráfico demonstrativo da evolução do saldo. Saldo inicial ${brl(s.opening)} e saldo disponível ${brl(s.available)}.`}>
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart
               data={points}
@@ -203,7 +203,7 @@ export function Overview({ s, open }: { s: Snapshot; open: () => void }) {
       </section>
       <Ledger s={s} open={open} />
       <p className="syncnote">
-        Base fictícia de {date(s.as_of)} de 2026 · Sem sincronização bancária
+        Base fictícia de {new Intl.DateTimeFormat("pt-BR", { dateStyle: "long", timeZone: "UTC" }).format(new Date(s.as_of + "T12:00:00Z"))} · Sem sincronização bancária
       </p>
     </>
   );

@@ -6,6 +6,13 @@ use uuid::Uuid;
 #[async_trait::async_trait]
 pub trait BankProvider: Send + Sync {
     fn environment(&self) -> &'static str;
+    async fn recurrence(
+        &self,
+        _company: Uuid,
+        _id: &str,
+    ) -> Result<crate::infrastructure::banking::inter::Recurrence, BankError> {
+        Err(BankError::Mock)
+    }
     async fn pix_charge(
         &self,
         company: Uuid,

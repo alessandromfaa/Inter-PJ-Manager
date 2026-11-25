@@ -82,11 +82,10 @@ pub async fn login(
         .map_err(|_| Error::Busy)?;
     let mut tx = app.db.begin().await?;
     let row=query("SELECT id,company_id,password_hash,active,failures>=5 AND window_start>now()-interval '15 minutes' locked FROM users WHERE email=$1 FOR UPDATE").bind(input.email.trim().to_lowercase()).fetch_optional(&mut *tx).await?;
-    if row.as_ref().is_some_and(|r| r.get::<bool, _>("locked")) {
-        return Err(Error::Busy);
-    }
+    let locked = row.as_ref().is_some_and(|r| r.get::<bool, _>("locked"));
     let stored = row
         .as_ref()
+        .filter(|_| !locked)
         .map(|r| r.get("password_hash"))
         .unwrap_or_else(|| app.dummy.as_ref().clone());
     let valid = tokio::task::spawn_blocking(move || {
@@ -99,6 +98,9 @@ pub async fn login(
     })
     .await
     .map_err(|_| Error::Internal)?;
+    if locked {
+        return Err(Error::Unauthorized);
+    }
     let row = row.ok_or(Error::Unauthorized)?;
     let user: Uuid = row.get("id");
     let company: Uuid = row.get("company_id");

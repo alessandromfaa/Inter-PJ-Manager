@@ -122,7 +122,11 @@ O contrato separa etapas que o MOCK hoje representa numa única solicitação lo
 
 O MOCK não coleta CPF/CNPJ nem dados bancários e usa UUID interno, não os identificadores oficiais de 29 caracteres. Portanto não se pode enviar diretamente o registro MOCK ao Inter. Antes de implementar formulário/armazenamento externo, definir finalidade, consentimento e proteção de dados pessoais. A matriz de integração já usa OAuth mTLS; credenciais de sandbox são esperadas em arquivos privados `sandbox/{client_id,client_secret,cert.pem,key.pem}` sob `INTER_CREDENTIALS_ROOT`, com `INTER_ACCOUNT_NUMBER` e vínculo local configurados. Ainda não foi verificado se esses materiais ou scopes existem no ambiente.
 
+**Inconsistência a confirmar no sandbox:** o schema publicado de `RecBaseObjeto.devedor` e `DadosBancarios` lista simultaneamente CPF e CNPJ como obrigatórios, mas sua descrição e alternativas `oneOf` indicam CPF ou CNPJ. Alguns exemplos também representam números de identificação como número JSON, perdendo zeros iniciais. Preservar identificadores como strings e confirmar com o Inter a validação efetiva antes de considerar o adapter de escrita homologado.
+
 [Especificação oficial](https://developers.inter.co/redocusaurus/swagger-api-pix-automatico-yaml.yaml)
+
+Consulta individual: `GET /pix/v2/rec/{idRec}` usa `rec.read`, retorna `RecCompleta` em HTTP 200, 403 para acesso negado, 404 para recorrência ausente e 503 para indisponibilidade. O adaptador local, restrito a SANDBOX, confere vínculo da empresa, identificador retornado e estados conhecidos; usa cache de token dedicado e limitador Pix. Testado com servidor local sintético; homologação oficial pendente.
 
 | Operação e versão | Escopo | P | S | Respostas HTTP |
 |---|---|---:|---:|---|

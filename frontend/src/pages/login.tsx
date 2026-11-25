@@ -73,20 +73,24 @@ export function Login({
             <input
               type="email"
               autoComplete="username"
+              aria-invalid={!!errors.email}
+              aria-describedby={errors.email ? "login-email-erro" : undefined}
               {...register("email")}
             />
           </label>
-          {errors.email && <small role="alert">{errors.email.message}</small>}
+          {errors.email && <small id="login-email-erro" role="alert">{errors.email.message}</small>}
           <label>
             Senha
             <input
               type="password"
               autoComplete="current-password"
+              aria-invalid={!!errors.password}
+              aria-describedby={errors.password ? "login-senha-erro" : undefined}
               {...register("password")}
             />
           </label>
           {errors.password && (
-            <small role="alert">{errors.password.message}</small>
+            <small id="login-senha-erro" role="alert">{errors.password.message}</small>
           )}
           {login.error && <p role="alert">{login.error.message}</p>}
           <Button disabled={login.isPending}>
@@ -98,7 +102,7 @@ export function Login({
           <ShieldCheck size={17} />{" "}
           {mode === "PRODUCTION"
             ? "Acesso empresarial de leitura"
-            : "Ambiente com dados bancários fictícios"}
+            : mode === "SANDBOX" ? "Ambiente de homologação bancária" : "Ambiente com dados demonstrativos fictícios"}
         </footer>
       </section>
     </main>
