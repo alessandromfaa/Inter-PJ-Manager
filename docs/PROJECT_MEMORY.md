@@ -1,5 +1,13 @@
 # Memória do projeto
 
+## Módulo de pagamentos de funcionários — regras propostas
+
+- Proprietário deseja cadastrar funcionários, salário mensal definido por ele e chave Pix; registrar faltas, adiantamentos e valores de produção informados manualmente. Não calcular INSS, IRPF ou outros encargos.
+- Base de cada pagamento: 50% do salário no dia 05 e 50% no dia 20. Faltas e adiantamentos de 06 a 20 pertencem ao pagamento do dia 20; os de 21 a 05 ao pagamento do dia 05. O proprietário confirmou que a falta do dia 05 entra no fechamento do próprio dia. Produção extra compõe o pagamento correspondente.
+- Desconto de uma falta injustificada: salário mensal dividido por 30, conforme proprietário. A simulação arredonda a diária ao centavo mais próximo e atribui ao dia 05 o centavo restante de salário ímpar; essas convenções precisam de validação operacional. Pendente definir tratamento de lançamentos após fechamento. Dados reais de pessoal exigem proteção e regras trabalhistas precisam ser validadas pela contabilidade. Integração com pagamentos reais depende de homologação e autorização específica.
+- Proprietário deseja vincular a folha a pagamentos Pix agendados, condicionando o crédito à sua aprovação prévia. Distinguir aprovação local, eventual aprovação no banco, agendamento e liquidação; a pessoa que prepara deve ser diferente da que aprova conforme política existente. A capacidade de agendar Pix por chave e as condições bancárias ainda exigem verificação de contrato e homologação; não presumir que uma aprovação local impeça uma instrução já enviada ao Inter de liquidar.
+- Em MOCK há cadastro persistente de funcionários e lançamentos fictícios, restrito a ADMIN e isolado por empresa. A prévia é calculada no navegador; ainda não há fechamento, alteração/cancelamento de lançamentos, prevenção de faltas duplicadas, histórico salarial, chave Pix ou vínculo com pagamentos. Não usar com dados reais ou como folha definitiva.
+
 Atualizado em 25/11/2026. Este documento registra decisões duradouras confirmadas no checkout. O estado de execução mais recente fica em [SESSION_HANDOFF.md](SESSION_HANDOFF.md). As instruções vigentes continuam em `AGENTS.md` e no wrapper `cx`.
 
 ## Estado publicado — 25/11/2026

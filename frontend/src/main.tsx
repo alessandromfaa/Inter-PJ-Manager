@@ -25,6 +25,7 @@ import { Recebimentos } from "./pages/recebimentos";
 import { MockPayments } from "./pages/mock-payments";
 import { InterPayments } from "./pages/inter-payments";
 import { Financeiro } from "./pages/financeiro";
+import { FolhaMock } from "./pages/folha-mock";
 import { PixAutomatico } from "./pages/pix-automatico";
 import { Pix } from "./pages/pix";
 import { Banking } from "./pages/banking";
@@ -147,6 +148,7 @@ function App() {
             ...(mode.data === "MOCK"
               ? [
                   { name: "Contas MOCK", icon: CalendarDays },
+                  { name: "Folha MOCK", icon: CalendarDays },
                   { name: "Pix Automático", icon: Repeat },
                 ]
               : []),
@@ -210,7 +212,9 @@ function App() {
                 </span>
               )}
           </div>
-          {view === "Contas MOCK" && mode.data === "MOCK" ? (
+          {view === "Folha MOCK" && mode.data === "MOCK" ? (
+            <FolhaMock key={session.data.id} user={session.data} />
+          ) : view === "Contas MOCK" && mode.data === "MOCK" ? (
             <Financeiro user={session.data} />
           ) : view === "Pix Automático" && mode.data === "MOCK" ? (
             <PixAutomatico user={session.data} />

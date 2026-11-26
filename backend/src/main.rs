@@ -4,6 +4,7 @@ mod auth;
 mod config;
 mod domain;
 mod financeiro;
+mod folha_mock;
 mod mfa;
 mod pagamentos;
 mod pagamentos_inter;
@@ -266,6 +267,14 @@ fn router(app: App) -> Router {
     }
     if app.bank.environment() == "MOCK" {
         routes = routes
+            .route(
+                "/api/mock/folha/funcionarios",
+                get(folha_mock::employees).post(folha_mock::create_employee),
+            )
+            .route(
+                "/api/mock/folha/lancamentos",
+                get(folha_mock::entries).post(folha_mock::create_entry),
+            )
             .route(
                 "/api/mock/pix-automatico/recorrencias",
                 get(pix_automatico::list).post(pix_automatico::create),

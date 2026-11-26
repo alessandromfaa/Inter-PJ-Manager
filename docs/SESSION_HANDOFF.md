@@ -1,5 +1,46 @@
 # Continuidade da sessão
 
+## Retomada prioritária — 26/11/2026
+
+O proprietário pediu continuidade mais ágil, sem refazer etapas concluídas. Na próxima conversa, ler este resumo e conferir o checkout; seguir diretamente com o trabalho solicitado, usando as seções antigas apenas como histórico. Não interpretar pendências como autorização para produção ou pagamentos reais.
+
+- **Objetivo atual:** concluir o módulo de folha em MOCK, com salário mensal definido pelo proprietário, 50% nos dias 05 e 20, faltas injustificadas equivalentes a salário/30, produção extra informada e adiantamentos. Períodos: dia 06–20 para pagamento no dia 20; dia 21–05 para pagamento no dia 05. Sem cálculo de INSS/IRPF.
+- **O que existe:** prévia e cadastro persistente de funcionários e lançamentos fictícios; rotas restritas a ADMIN, isolamento por empresa, auditoria e idempotência; testes sintéticos. A aprovação e agendamento Pix ainda não estão ligados à folha.
+- **Próxima sequência concreta:** (1) testes negativos de segregação e RBAC; (2) impedir faltas duplicadas e criar correção/cancelamento auditados; (3) histórico salarial e fechamento imutável com controle de concorrência/idempotência, incluindo tratamento de lançamentos posteriores; (4) chave Pix fictícia, vínculo com solicitações de pagamento e aprovação separada; (5) testes integrados e revisão de segurança. Ajustar esta ordem quando necessário sem refazer o que já funciona.
+- **Limitações:** prévia no navegador não é folha fechada; não usar dados reais. Não há pagamento real, INSS ou IRPF. A diária é arredondada ao centavo mais próximo e o centavo excedente da divisão do salário vai para dia 05; confirmar essas convenções com o proprietário/contabilidade para uso real.
+- **Estado local verificado:** MOCK em `http://127.0.0.1:18080`, conta `admin@e2e.local` e senha no arquivo privado `secrets/e2e/admin`. Banco E2E tem migration 0014 aplicada. Instância de leitura do Inter é separada em `https://127.0.0.1:8443`; inspeção de 26/11 constatou migrations até 0011 nela, apesar de relatos históricos diferentes abaixo. Não reiniciar seu backend com código novo: isso aplicaria migrations 0012–0014 e exige autorização específica prévia e backup.
+- **Escopo bancário:** o proprietário quer aprovar antes de qualquer crédito; aprovação local deve preceder envio e ser feita por pessoa diferente do preparador. Conferir capacidade de agendamento Pix por chave, eventual aprovação no Inter e estados de pagamento no contrato oficial antes de implementar integração externa. O piloto real tem limite de R$ 0,01 e permanece sem homologação e sem autorização de transação real.
+- **Arquivo local pré-existente:** `docs/INSTALACAO_OUTRA_ESTACAO.md` estava não rastreado antes desta sessão e contém detalhes internos; foi preservado fora do commit de consolidação.
+- **Verificações da consolidação:** `cargo fmt --check`, Clippy com todos os alvos e recursos, `cargo test --locked --features testes-postgres` (27 passaram, um teste de envio simulado ignorado, mais 2 testes de modos), lint, 7 testes unitários e build do frontend, e Playwright completo (12/12) passaram. PostgreSQL descartável em tmpfs foi encerrado; não houve homologação bancária.
+
+## Planejamento de pagamentos de funcionários — 26/11/2026
+
+- Criadas rotas e tela MOCK para cadastrar funcionários e lançamentos fictícios com persistência por empresa, acesso ADMIN, auditoria transacional e idempotência. A migration 0014 foi aplicada somente à base isolada E2E. A interface trata repetição sem alterar os dados com a mesma chave durante a sessão da página.
+- Verificações: `cargo test --locked` em imagem Rust (25 testes e 2 de modos), `cargo fmt`, lint, 7 testes unitários e build frontend; Playwright `folha-mock.spec.ts` passou 3 cenários de simulação, persistência, autenticação e idempotência. Testes criaram funcionários sintéticos no banco E2E.
+- Pendências obrigatórias: validação negativa de segregação multiempresa e RBAC, impedir faltas duplicadas, corrigir/cancelar lançamentos, histórico de salários, fechamento e seus conflitos, chave Pix fictícia, aprovação e vínculo com pagamentos. A prévia não é folha final; não usar dados reais. A migration 0014 também será executada na inicialização de outras instâncias que usem o novo backend e requer autorização específica em produção.
+
+- Proprietário solicitou vínculo da folha a Pix agendado com sua aprovação antes do crédito. Inter documenta inclusão e consulta de Pix, mas a capacidade de informar data futura e a mecânica de aprovação para Pix por chave ainda precisam ser verificadas no contrato e homologadas. Nada foi conectado ao banco.
+- A migration `0014_mock_folha.sql` foi inicialmente ensaiada em transação revertida e depois aplicada à base MOCK E2E. Sua presença implica alteração de schema na próxima atualização da API em outras instâncias, inclusive em produção, sujeita a autorização específica.
+
+- A tela `Folha MOCK` oferece simulação temporária e cadastros fictícios persistentes; não cadastra chaves Pix nem realiza pagamentos. A divisão de salários com centavo ímpar reserva o restante para o dia 05; diária arredonda ao centavo mais próximo, ambas convenções a validar.
+
+- Proprietário confirmou salários mensais definidos por ele, pagamentos de 50% nos dias 05 e 20, produção extra por valor informado e faltas/adiantamentos descontados na quinzena: 06–20 para dia 20, 21–05 para dia 05. Não calcular INSS ou IRPF.
+- Iniciado cálculo em `frontend/src/services/quinzena.ts`: classificação de quinzenas, diária de salário dividido por 30 e prévia com faltas, produção e adiantamentos em centavos. Lançamentos após fechamento seguem pendentes; não há fechamento de folha. Usar dados sintéticos em MOCK; validar regras trabalhistas e controles de dados pessoais antes de uso real. Regras estão em `PROJECT_MEMORY.md`.
+- Validação do incremento: `npm test` (7 testes), `npm run lint`, `npm run build -- --outDir /tmp/inter-quizenal-build` e `git diff --check` passaram. Build emite avisos conhecidos da dependência Zod.
+
+## Validação e ajustes MOCK — 26/11/2026
+
+- Corrigido contraste de links/valores positivos e atualizado o fixture E2E de extrato para o contrato detalhado. A interface MOCK foi reconstruída com a correção.
+- `cargo fmt --check` e `cargo test --locked` em container Rust passaram (25 testes unitários e 2 de modos); frontend lint, Vitest (2), build e Playwright com Chrome local (9/9, incluindo axe) passaram. O build local usou diretório temporário devido a artefatos anteriores sem permissão de escrita.
+- Verificação de login MOCK posterior confirmou HTTP 200 para login e sessão com a conta e o segredo E2E. Testes E2E gravaram dados sintéticos na base isolada.
+- A base local da instância de leitura de produção contém migrations 1–7 e 9–11, enquanto o checkout também contém 12 e 13. A atualização do backend executaria essas migrations; requer autorização específica para esse efeito. Nenhuma alteração foi realizada nessa instância.
+
+## MOCK atualizado — 26/11/2026
+
+- A pilha isolada `inter-pj-manager-e2e` foi reconstruída a partir do checkout `main` (`850f653`) e está acessível em `http://127.0.0.1:18080`, com a identidade Brilhe Móveis. O volume E2E existente foi preservado.
+- As migrations 0012 e 0013 foram aplicadas com sucesso somente ao banco E2E; serviços saudáveis, `/ready` e título da página verificados. O backend confirma `INTER_ENV=mock`, escritas bancárias e pagamentos reais desabilitados.
+- O login E2E é `admin@e2e.local`; a senha permanece no arquivo privado `secrets/e2e/admin`. A tentativa de validar login nesta sessão foi bloqueada pelas permissões de sudo; não foi confirmada após a reconstrução.
+
 ## Instalação da outra estação — 25/11/2026
 
 - Docker Engine/Moby 29.9.3 e Docker Compose 5.7.1 foram instalados no Fedora 44; o serviço está habilitado e ativo.

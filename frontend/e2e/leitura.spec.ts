@@ -39,8 +39,9 @@ test("leitura em homologação com respostas locais", async ({ page }) => {
       });
     if (path === "/api/extrato")
       return reply({
-        entries: [{ date: "2026-11-23", cents: "-532", kind: "TARIFA" }],
+        entries: [{ transaction_id: "tarifa-1", date: "2026-11-23", included_on: null, cents: "-532", kind: "TARIFA", operation: "D", title: null, description: null, document_number: null }],
         has_more: false,
+        summary: { total_entries: 1, incoming_cents: "0", outgoing_cents: "532", net_cents: "-532" },
       });
     return route.abort();
   });
@@ -52,5 +53,5 @@ test("leitura em homologação com respostas locais", async ({ page }) => {
   await page.getByRole("button", { name: "Sincronizar leitura" }).click();
   await expect(page.getByText(/120,25/)).toBeVisible();
   await page.getByRole("button", { name: "Extrato", exact: true }).click();
-  await expect(page.getByRole("cell", { name: "TARIFA" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: /TARIFA/ })).toBeVisible();
 });

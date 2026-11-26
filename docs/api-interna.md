@@ -1,5 +1,16 @@
 # Referência HTTP interna
 
+## Folha demonstrativa em MOCK
+
+As rotas abaixo existem somente em MOCK, exigem sessão ADMIN e aceitam apenas dados fictícios. Não criam pagamentos nem armazenam chaves Pix. A empresa é determinada pela sessão.
+
+- `GET /api/mock/folha/funcionarios`: lista até 200 funcionários fictícios; acima do limite retorna erro, sem resposta truncada.
+- `POST /api/mock/folha/funcionarios`: recebe `nome`, `salario_centavos` como string inteira positiva e UUID `idempotencia`.
+- `GET /api/mock/folha/lancamentos?funcionario_id=UUID`: lista até 1.000 lançamentos daquele funcionário da empresa; acima do limite retorna erro.
+- `POST /api/mock/folha/lancamentos`: recebe `funcionario_id`, `tipo` (`FALTA_INJUSTIFICADA`, `FALTA_JUSTIFICADA`, `ADIANTAMENTO` ou `PRODUCAO`), `data`, `valor_centavos` (string positiva apenas para adiantamento e produção; `null` para faltas) e UUID `idempotencia`.
+
+Repetição com a mesma chave, autor e conteúdo devolve o mesmo registro; dados diferentes com a mesma chave retornam conflito. A criação e a auditoria são transacionais. A prévia no navegador não é fechamento de folha, nem aprovação ou envio Pix. Ainda faltam correção e cancelamento de lançamentos, revisão de segurança, chave Pix fictícia e fechamento.
+
 | Rota | Acesso | Resposta |
 |---|---|---|
 | GET /health | Sonda interna da API | Texto ok enquanto o processo atende |
