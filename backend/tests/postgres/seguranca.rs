@@ -118,6 +118,7 @@ async fn sessoes_permissoes_e_segregacao() -> Result<()> {
             .status(),
         StatusCode::OK
     );
+    exercitar_seguranca_folha(&api, &pool, cookie, origin, user, other, actor).await?;
     query("INSERT INTO mock_financial_items(id,company_id,creator_id,kind,party_name,description,amount_cents,due_on) VALUES($1,$2,$3,'PAGAR',' =1+1','Teste',100,'2026-11-25')")
         .bind(Uuid::new_v4()).bind(tenant).bind(user).execute(&pool).await?;
     let report = "/api/mock/financeiro/relatorio.csv?inicio=2026-11-01&fim=2026-11-30";
@@ -244,6 +245,232 @@ async fn sessoes_permissoes_e_segregacao() -> Result<()> {
             .status(),
         StatusCode::UNAUTHORIZED
     );
+    Ok(())
+}
+
+async fn exercitar_seguranca_folha(
+    api: &Router,
+    pool: &sqlx_postgres::PgPool,
+    cookie: &str,
+    origin: &str,
+    user: Uuid,
+    other: Uuid,
+    actor: Uuid,
+) -> Result<()> {
+    let employee = Uuid::new_v4();
+    query("INSERT INTO mock_payroll_employees(id,company_id,creator_id,idempotency_key,name,salary_cents) VALUES($1,$2,$3,$4,'Funcionário de outra empresa',300000)")
+        .bind(employee).bind(other).bind(actor).bind(Uuid::new_v4()).execute(pool).await?;
+    let entries = format!("/api/mock/folha/lancamentos?funcionario_id={employee}");
+    let entry = json!({"funcionario_id":employee,"tipo":"FALTA_INJUSTIFICADA","data":"2026-11-20","valor_centavos":null,"idempotencia":Uuid::new_v4()});
+    let foreign_entry = Uuid::new_v4();
+    query("INSERT INTO mock_payroll_entries(id,company_id,employee_id,creator_id,idempotency_key,kind,occurred_on) VALUES($1,$2,$3,$4,$5,'FALTA_INJUSTIFICADA','2026-11-20')")
+        .bind(foreign_entry).bind(other).bind(employee).bind(actor).bind(Uuid::new_v4()).execute(pool).await?;
+    let foreign_cancel = format!("/api/mock/folha/lancamentos/{foreign_entry}/cancelar");
+    let cancel_input = json!({"idempotencia":Uuid::new_v4()});
+    let employee_input = json!({"nome":"Funcionário fictício","salario_centavos":"300000","idempotencia":Uuid::new_v4()});
+    for (path, body) in [
+        ("/api/mock/folha/funcionarios", None),
+        ("/api/mock/folha/funcionarios", Some(employee_input)),
+        (entries.as_str(), None),
+        ("/api/mock/folha/lancamentos", Some(entry.clone())),
+        (foreign_cancel.as_str(), Some(cancel_input.clone())),
+        (
+            "/api/mock/folha/salarios",
+            Some(
+                json!({"funcionario_id":employee,"vigente_a_partir":"2099-01-05","salario_centavos":"350000","idempotencia":Uuid::new_v4()}),
+            ),
+        ),
+    ] {
+        assert_eq!(
+            chamada(api, path, cookie, body, origin).await.status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    query("INSERT INTO user_roles VALUES ($1,'ADMIN')")
+        .bind(user)
+        .execute(pool)
+        .await?;
+    let response = chamada(api, "/api/mock/folha/funcionarios", cookie, None, origin).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let visible: Value = serde_json::from_slice(&to_bytes(response.into_body(), 65536).await?)?;
+    assert_eq!(visible, json!([]));
+    assert_eq!(
+        chamada(api, &foreign_cancel, cookie, Some(cancel_input), origin)
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let response = chamada(api, &entries, cookie, None, origin).await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let visible: Value = serde_json::from_slice(&to_bytes(response.into_body(), 65536).await?)?;
+    assert_eq!(visible, json!([]));
+    assert_eq!(
+        chamada(
+            api,
+            "/api/mock/folha/lancamentos",
+            cookie,
+            Some(entry),
+            origin
+        )
+        .await
+        .status(),
+        StatusCode::NOT_FOUND
+    );
+    let count: i64 = query_scalar("SELECT count(*) FROM mock_payroll_entries WHERE employee_id=$1")
+        .bind(employee)
+        .fetch_one(pool)
+        .await?;
+    assert_eq!(count, 1);
+    let cancelled: bool =
+        query_scalar("SELECT cancelled_at IS NOT NULL FROM mock_payroll_entries WHERE id=$1")
+            .bind(foreign_entry)
+            .fetch_one(pool)
+            .await?;
+    assert!(!cancelled);
+    assert_eq!(chamada(api, "/api/mock/folha/salarios", cookie, Some(json!({"funcionario_id":employee,"vigente_a_partir":"2099-01-05","salario_centavos":"350000","idempotencia":Uuid::new_v4()})), origin).await.status(), StatusCode::NOT_FOUND);
+    let own = Uuid::new_v4();
+    query("INSERT INTO mock_payroll_employees(id,company_id,creator_id,idempotency_key,name,salary_cents) SELECT $1,company_id,id,$2,'Funcionário fictício',300000 FROM users WHERE id=$3")
+        .bind(own).bind(Uuid::new_v4()).bind(user).execute(pool).await?;
+    let salary_key = Uuid::new_v4();
+    let salary = json!({"funcionario_id":own,"vigente_a_partir":"2099-01-05","salario_centavos":"350000","idempotencia":salary_key});
+    let (first, second) = tokio::join!(
+        chamada(
+            api,
+            "/api/mock/folha/salarios",
+            cookie,
+            Some(salary.clone()),
+            origin
+        ),
+        chamada(
+            api,
+            "/api/mock/folha/salarios",
+            cookie,
+            Some(salary.clone()),
+            origin
+        ),
+    );
+    assert_eq!(first.status(), StatusCode::CREATED);
+    assert_eq!(second.status(), StatusCode::CREATED);
+    assert_eq!(chamada(api, "/api/mock/folha/salarios", cookie, Some(json!({"funcionario_id":own,"vigente_a_partir":"2099-01-05","salario_centavos":"400000","idempotencia":Uuid::new_v4()})), origin).await.status(), StatusCode::CONFLICT);
+    assert_eq!(chamada(api, "/api/mock/folha/salarios", cookie, Some(json!({"funcionario_id":own,"vigente_a_partir":"2000-01-05","salario_centavos":"400000","idempotencia":Uuid::new_v4()})), origin).await.status(), StatusCode::CONFLICT);
+    let response = chamada(
+        api,
+        &format!("/api/mock/folha/salarios?funcionario_id={own}"),
+        cookie,
+        None,
+        origin,
+    )
+    .await;
+    let rows: Value = serde_json::from_slice(&to_bytes(response.into_body(), 65536).await?)?;
+    assert_eq!(rows.as_array().unwrap().len(), 1);
+    assert_eq!(rows[0]["salario_centavos"], "350000");
+    let entry_key = Uuid::new_v4();
+    let payload = json!({"funcionario_id":own,"tipo":"FALTA_INJUSTIFICADA","data":"2026-11-20","valor_centavos":null,"idempotencia":entry_key});
+    let created = chamada(
+        api,
+        "/api/mock/folha/lancamentos",
+        cookie,
+        Some(payload.clone()),
+        origin,
+    )
+    .await;
+    assert_eq!(created.status(), StatusCode::CREATED);
+    let created: Value = serde_json::from_slice(&to_bytes(created.into_body(), 65536).await?)?;
+    let entry_id = created["id"].as_str().unwrap();
+    assert_eq!(
+        chamada(
+            api,
+            "/api/mock/folha/lancamentos",
+            cookie,
+            Some(payload.clone()),
+            origin
+        )
+        .await
+        .status(),
+        StatusCode::CREATED
+    );
+    let duplicate = json!({"funcionario_id":own,"tipo":"FALTA_JUSTIFICADA","data":"2026-11-20","valor_centavos":null,"idempotencia":Uuid::new_v4()});
+    assert_eq!(
+        chamada(
+            api,
+            "/api/mock/folha/lancamentos",
+            cookie,
+            Some(duplicate.clone()),
+            origin
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    let cancel_key = Uuid::new_v4();
+    let cancel = format!("/api/mock/folha/lancamentos/{entry_id}/cancelar");
+    let cancellation = json!({"idempotencia":cancel_key});
+    let (first, second) = tokio::join!(
+        chamada(api, &cancel, cookie, Some(cancellation.clone()), origin),
+        chamada(api, &cancel, cookie, Some(cancellation.clone()), origin),
+    );
+    assert_eq!(first.status(), StatusCode::NO_CONTENT);
+    assert_eq!(second.status(), StatusCode::NO_CONTENT);
+    assert_eq!(
+        chamada(
+            api,
+            &cancel,
+            cookie,
+            Some(json!({"idempotencia":Uuid::new_v4()})),
+            origin
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        chamada(
+            api,
+            "/api/mock/folha/lancamentos",
+            cookie,
+            Some(payload),
+            origin
+        )
+        .await
+        .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        chamada(
+            api,
+            "/api/mock/folha/lancamentos",
+            cookie,
+            Some(duplicate),
+            origin
+        )
+        .await
+        .status(),
+        StatusCode::CREATED
+    );
+    let rows = chamada(
+        api,
+        &format!("/api/mock/folha/lancamentos?funcionario_id={own}"),
+        cookie,
+        None,
+        origin,
+    )
+    .await;
+    let rows: Value = serde_json::from_slice(&to_bytes(rows.into_body(), 65536).await?)?;
+    assert_eq!(
+        rows.as_array()
+            .unwrap()
+            .iter()
+            .filter(|row| row["cancelado"] == true)
+            .count(),
+        1
+    );
+    let audited: i64 = query_scalar("SELECT count(*) FROM audit_logs WHERE actor=$1 AND action='Lançamento fictício de folha cancelado'")
+        .bind(user).fetch_one(pool).await?;
+    assert_eq!(audited, 1);
+    query("DELETE FROM user_roles WHERE user_id=$1 AND role='ADMIN'")
+        .bind(user)
+        .execute(pool)
+        .await?;
     Ok(())
 }
 

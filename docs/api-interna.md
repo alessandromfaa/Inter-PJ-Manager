@@ -6,8 +6,12 @@ As rotas abaixo existem somente em MOCK, exigem sessão ADMIN e aceitam apenas d
 
 - `GET /api/mock/folha/funcionarios`: lista até 200 funcionários fictícios; acima do limite retorna erro, sem resposta truncada.
 - `POST /api/mock/folha/funcionarios`: recebe `nome`, `salario_centavos` como string inteira positiva e UUID `idempotencia`.
-- `GET /api/mock/folha/lancamentos?funcionario_id=UUID`: lista até 1.000 lançamentos daquele funcionário da empresa; acima do limite retorna erro.
+- `GET /api/mock/folha/lancamentos?funcionario_id=UUID`: lista até 1.000 lançamentos daquele funcionário da empresa, inclusive cancelados, com `cancelado`; acima do limite retorna erro.
 - `POST /api/mock/folha/lancamentos`: recebe `funcionario_id`, `tipo` (`FALTA_INJUSTIFICADA`, `FALTA_JUSTIFICADA`, `ADIANTAMENTO` ou `PRODUCAO`), `data`, `valor_centavos` (string positiva apenas para adiantamento e produção; `null` para faltas) e UUID `idempotencia`.
+- Somente uma falta ativa por funcionário e data é permitida, independentemente do tipo. Uma chave de criação já usada em lançamento cancelado retorna 409; use nova chave para uma correção.
+- `POST /api/mock/folha/lancamentos/{id}/cancelar`: recebe UUID `idempotencia`; retorna 204, inclusive na repetição idêntica. Outra chave para lançamento já cancelado ou reutilização da chave para outro lançamento retorna 409. O cancelamento é auditado e preserva o registro; para corrigir, cancele e crie outro lançamento. Não existe fechamento imutável da folha.
+- `GET /api/mock/folha/salarios?funcionario_id=UUID`: lista até 1.000 alterações salariais fictícias, ordenadas pela data de vigência; o salário inicial permanece no cadastro do funcionário.
+- `POST /api/mock/folha/salarios`: recebe `funcionario_id`, `vigente_a_partir`, `salario_centavos` e UUID `idempotencia`. A data deve ser dia 05 ou 20 posterior à data UTC atual; há no máximo uma alteração por funcionário e data. Repetição idêntica é idempotente, conflitos retornam 409. A vigência corresponde à data de pagamento, não ao início do período; alteração cadastrada não pode ser editada ou cancelada nesta versão.
 
 Repetição com a mesma chave, autor e conteúdo devolve o mesmo registro; dados diferentes com a mesma chave retornam conflito. A criação e a auditoria são transacionais. A prévia no navegador não é fechamento de folha, nem aprovação ou envio Pix. Ainda faltam correção e cancelamento de lançamentos, revisão de segurança, chave Pix fictícia e fechamento.
 

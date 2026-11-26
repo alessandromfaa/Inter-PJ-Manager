@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { diariaEmCentavos, pagamentoDaQuinzena, preverQuinzena } from "../src/services/quinzena";
+import { diariaEmCentavos, pagamentoDaQuinzena, preverQuinzena, salarioNaData } from "../src/services/quinzena";
+
+it("aplica o salário vigente na data do pagamento sem alterar períodos anteriores", () => {
+  const mudancas = [{ vigente_a_partir: "2099-02-05", salario_centavos: "400000" }, { vigente_a_partir: "2099-01-20", salario_centavos: "350000" }];
+  expect(salarioNaData("300000", "2099-01-05", mudancas)).toBe(300000n);
+  expect(salarioNaData("300000", "2099-01-20", mudancas)).toBe(350000n);
+  expect(salarioNaData("300000", "2099-02-20", mudancas)).toBe(400000n);
+});
 
 describe("pagamento da quinzena", () => {
   it("aplica os limites definidos pelo proprietário", () => {

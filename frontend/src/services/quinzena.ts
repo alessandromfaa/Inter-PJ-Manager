@@ -29,6 +29,14 @@ export type LancamentoQuinzena = {
   valorCentavos?: bigint;
 };
 
+export function salarioNaData(inicial: string, pagamento: string, alteracoes: { vigente_a_partir: string; salario_centavos: string }[]): bigint {
+  const vigente = alteracoes.filter((item) => item.vigente_a_partir <= pagamento).reduce<{ vigente_a_partir: string; salario_centavos: string } | undefined>(
+    (atual, item) => !atual || item.vigente_a_partir > atual.vigente_a_partir ? item : atual,
+    undefined,
+  );
+  return BigInt(vigente?.salario_centavos ?? inicial);
+}
+
 /** Prévia calculada com lançamentos fictícios; não representa fechamento ou pagamento. */
 export function preverQuinzena(
   salario: bigint,

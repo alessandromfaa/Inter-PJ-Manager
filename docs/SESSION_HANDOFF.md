@@ -1,12 +1,27 @@
 # Continuidade da sessão
 
+## Folha MOCK — histórico salarial
+
+- Criados histórico de alterações salariais e seleção do salário vigente na prévia. Alterações são auditadas, idempotentes, restritas a ADMIN e à empresa, e só podem começar em pagamentos futuros (05 ou 20, comparação pela data UTC). O salário inicial permanece no cadastro. Alterações salariais não podem ser editadas ou canceladas nesta versão.
+- Migration 0016 e teste PostgreSQL direcionado executados somente em banco descartável; concorrência, repetição, conflitos e segregação validados. Frontend testado com 8 testes, lint e build; não houve teste de navegador. Permanecem pendentes fechamento imutável, lançamentos posteriores, vínculo com pagamentos e revisão completa. Não houve aplicação à instância Inter.
+
+## Folha MOCK — cancelamento e faltas
+
+- Implementados cancelamento auditado com chave idempotente, histórico de lançamentos cancelados, exclusão da prévia e bloqueio de faltas ativas duplicadas; para correção, cancelar e recriar. A migration 0015, previamente não rastreada, foi ajustada para vínculo composto entre empresa e lançamento. Sua aplicação em bases existentes exige checar duplicatas e obter autorizações aplicáveis; não foi aplicada à instância Inter.
+- Teste PostgreSQL direcionado `cargo test --locked --offline --features testes-postgres sessoes_permissoes_e_segregacao` passou e cobre repetição concorrente de cancelamento, conflito, auditoria, recriação e segregação. `cargo clippy --locked --offline --all-targets --all-features -- -D warnings`, `cargo fmt`, frontend lint, 7 testes e build passaram. Não houve teste de navegador do novo fluxo. Continuam pendentes histórico salarial, fechamento imutável, tratamento de lançamentos posteriores e integração com pagamentos MOCK.
+
+## Continuação — 26/11/2026
+
+- Acrescentado teste PostgreSQL para negar as quatro operações da folha a usuário sem ADMIN e verificar que ADMIN não lista funcionários nem lançamentos de outra empresa e não cria lançamento para funcionário externo. O cenário `sessoes_permissoes_e_segregacao` passou em PostgreSQL descartável em loopback; `cargo fmt --check` e `git diff --check` passaram.
+- A migration local não rastreada `0015_mock_folha_cancelamento.sql` já existia ao iniciar a sessão e foi preservada; foi carregada apenas no banco descartável vazio como parte do teste. Sua aplicação em banco existente, a implementação de cancelamento e os demais passos da folha continuam pendentes. A migration contém índice único que falha se já houver faltas duplicadas; não aplicá-la sem avaliar os dados e as autorizações necessárias.
+
 ## Retomada prioritária — 26/11/2026
 
 O proprietário pediu continuidade mais ágil, sem refazer etapas concluídas. Na próxima conversa, ler este resumo e conferir o checkout; seguir diretamente com o trabalho solicitado, usando as seções antigas apenas como histórico. Não interpretar pendências como autorização para produção ou pagamentos reais.
 
 - **Objetivo atual:** concluir o módulo de folha em MOCK, com salário mensal definido pelo proprietário, 50% nos dias 05 e 20, faltas injustificadas equivalentes a salário/30, produção extra informada e adiantamentos. Períodos: dia 06–20 para pagamento no dia 20; dia 21–05 para pagamento no dia 05. Sem cálculo de INSS/IRPF.
 - **O que existe:** prévia e cadastro persistente de funcionários e lançamentos fictícios; rotas restritas a ADMIN, isolamento por empresa, auditoria e idempotência; testes sintéticos. A aprovação e agendamento Pix ainda não estão ligados à folha.
-- **Próxima sequência concreta:** (1) testes negativos de segregação e RBAC; (2) impedir faltas duplicadas e criar correção/cancelamento auditados; (3) histórico salarial e fechamento imutável com controle de concorrência/idempotência, incluindo tratamento de lançamentos posteriores; (4) chave Pix fictícia, vínculo com solicitações de pagamento e aprovação separada; (5) testes integrados e revisão de segurança. Ajustar esta ordem quando necessário sem refazer o que já funciona.
+- **Próxima sequência concreta:** fechamento imutável com controle de concorrência/idempotência, incluindo tratamento de lançamentos posteriores; chave Pix fictícia, vínculo com solicitações de pagamento e aprovação separada; testes integrados e revisão de segurança. Histórico salarial, segregação/RBAC e cancelamento foram desenvolvidos conforme registros acima.
 - **Limitações:** prévia no navegador não é folha fechada; não usar dados reais. Não há pagamento real, INSS ou IRPF. A diária é arredondada ao centavo mais próximo e o centavo excedente da divisão do salário vai para dia 05; confirmar essas convenções com o proprietário/contabilidade para uso real.
 - **Estado local verificado:** MOCK em `http://127.0.0.1:18080`, conta `admin@e2e.local` e senha no arquivo privado `secrets/e2e/admin`. Banco E2E tem migration 0014 aplicada. Instância de leitura do Inter é separada em `https://127.0.0.1:8443`; inspeção de 26/11 constatou migrations até 0011 nela, apesar de relatos históricos diferentes abaixo. Não reiniciar seu backend com código novo: isso aplicaria migrations 0012–0014 e exige autorização específica prévia e backup.
 - **Escopo bancário:** o proprietário quer aprovar antes de qualquer crédito; aprovação local deve preceder envio e ser feita por pessoa diferente do preparador. Conferir capacidade de agendamento Pix por chave, eventual aprovação no Inter e estados de pagamento no contrato oficial antes de implementar integração externa. O piloto real tem limite de R$ 0,01 e permanece sem homologação e sem autorização de transação real.

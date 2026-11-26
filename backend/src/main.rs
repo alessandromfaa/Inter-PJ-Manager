@@ -276,6 +276,14 @@ fn router(app: App) -> Router {
                 get(folha_mock::entries).post(folha_mock::create_entry),
             )
             .route(
+                "/api/mock/folha/salarios",
+                get(folha_mock::salary_changes).post(folha_mock::create_salary_change),
+            )
+            .route(
+                "/api/mock/folha/lancamentos/{id}/cancelar",
+                post(folha_mock::cancel_entry),
+            )
+            .route(
                 "/api/mock/pix-automatico/recorrencias",
                 get(pix_automatico::list).post(pix_automatico::create),
             )
